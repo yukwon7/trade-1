@@ -38,6 +38,10 @@ trap - EXIT
 chown root:1000 "$CONFIG"
 chmod 640 "$CONFIG"
 
+if [[ -x /usr/local/sbin/trade-1-set-telegram-commands ]]; then
+  /usr/local/sbin/trade-1-set-telegram-commands "$CONFIG"
+fi
+
 systemctl restart trade-freqtrade
 for _ in {1..30}; do
   if docker inspect -f '{{.State.Running}}' trade-freqtrade 2>/dev/null | grep -Fxq true; then

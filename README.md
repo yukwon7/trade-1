@@ -96,11 +96,25 @@ sudo trade-1-configure-telegram /secure/telegram-token /secure/telegram-chat-id
 
 - `/stake`: 현재 포지션당 증거금을 표시한다.
 - `/stake 20`: 다음 신규 포지션부터 사용할 증거금을 20 USDT로 변경한다.
+- `/daily`: 한국시간 기준 오늘 진입·청산, 실현·미실현 손익, 현재 열린 포지션을 표시한다.
+- `/menu`: 카드형 명령 센터를 표시한다. `/help`와 동일하다.
 - `/learn`: 최근 일일 복기를 표시한다.
 - `/learn_weekly`: 최근 주간 복기를 표시한다.
 - `/learn_monthly`: 최근 월간 복기를 표시한다.
 
 이 명령은 `dry_run` 설정에서만 동작하며 기본 허용 범위는 1~100 USDT다. 이미 열린 포지션에는 적용되지 않는다.
+
+텔레그램 출력은 `sitecustomize.py`의 공통 UI 포맷터를 거쳐 제목, 상태 아이콘, 구분선,
+정보 우선순위를 일관되게 표시한다. 시작·경고·진입·청산 알림과 주요 명령 화면에 동일하게 적용된다.
+
+컨테이너 교체 전에 거래 DB가 영속화되지 않아 과거 DB를 잃었지만 systemd journal이 남아 있는 경우,
+완료 거래를 학습 DB로 일회성 복구할 수 있다.
+
+```bash
+sudo journalctl -u trade-freqtrade -o json --no-pager | \
+  sudo docker exec -i --user 1000:1000 trade-freqtrade \
+  python /freqtrade/user_data/strategies/recover_journal_trades.py
+```
 
 ## 운영 명령
 

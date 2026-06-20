@@ -18,6 +18,7 @@ $requiredFiles = @(
   'deploy\trade_learning.py',
   'deploy\sync_learning.py',
   'deploy\review_learning.py',
+  'deploy\recover_journal_trades.py',
   'deploy\trade-learning-sync.service',
   'deploy\trade-learning-sync.timer',
   'deploy\trade-learning-review-daily.service',
@@ -28,6 +29,7 @@ $requiredFiles = @(
   'deploy\trade-learning-review-monthly.timer',
   'deploy\telegram.disabled.json',
   'deploy\configure-telegram.sh',
+  'deploy\set_telegram_commands.py',
   'deploy\telegram_ko\sitecustomize.py',
   'deploy\AggressiveSafeStrategy.py',
   'deploy\community_strategies\FAdxSmaStrategy.py',
@@ -53,7 +55,9 @@ Assert-Contains 'deploy\freqtrade.service' @('freqtradeorg/freqtrade:stable', '-
 Assert-Contains 'deploy\freqtrade.service' @('/etc/trade-1/telegram.json:/run/secrets/telegram.json:ro', '--config /run/secrets/telegram.json')
 Assert-Contains 'deploy\freqtrade.service' @('PYTHONPATH=/freqtrade/user_data/patches:/freqtrade/user_data/strategies')
 Assert-Contains 'deploy\configure-telegram.sh' @('allow_custom_messages', 'notification_settings', 'systemctl restart trade-freqtrade', '--disable')
-Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko', 'CommandHandler(["stake", "stake_amount"]', 'def _stake_amount', 'dry-run에서만 허용', 'TELEGRAM_STAKE_MAX', 'def _learn_review', 'learn_weekly', 'learn_monthly', 'latest_review_summary', 'Telegram._startup_telegram = _startup_telegram_with_stake')
+Assert-Contains 'deploy\set_telegram_commands.py' @('setMyCommands', '오늘 손익과 열린 포지션', 'Telegram command menu updated')
+Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '_polish_message', '_DIVIDER', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko', 'CommandHandler(["stake", "stake_amount"]', 'CommandHandler(["daily"]', 'CommandHandler(["menu"]', 'MessageHandler(filters.Regex', 'def _remove_upstream_daily_handler', 'parse_mode=None', 'def _daily_trade_report', 'PERFORMANCE', 'OPEN POSITIONS', 'TRADE·1 COMMAND CENTER', 'def _stake_amount', '모의투자 모드에서만', 'TELEGRAM_STAKE_MAX', 'def _learn_review', 'learn_weekly', 'learn_monthly', 'latest_review_summary', 'Telegram._startup_telegram = _startup_telegram_with_stake')
+Assert-Contains 'deploy\recover_journal_trades.py' @('parse_exit_messages', 'journal recovery complete', 'upsert_trade_result', 'rebuild_signal_stats')
 Assert-Contains 'deploy\config.json.template' @('"dry_run": true', '"db_url": "sqlite:////freqtrade/user_data/tradesv3.dryrun.sqlite"', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', '"stake_amount": 10', '"timeframe": "5m"', '"force_entry_enable": true', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', '__API_PASSWORD__')
 Assert-Contains 'deploy\backtest.config.json' @('"dry_run": true', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT')
 Assert-Contains 'deploy\AggressiveSafeStrategy.py' @('can_short = True', 'timeframe = "4h"', 'stoploss = -0.08', 'return min(20.0, max_leverage)', 'position_adjustment_enable = False')
@@ -67,7 +71,7 @@ Assert-Contains 'deploy\trade-learning-sync.timer' @('OnUnitActiveSec=1min', 'Pe
 Assert-Contains 'deploy\trade-learning-review-daily.timer' @('OnCalendar=*-*-* 00:10:00 UTC', 'Persistent=true')
 Assert-Contains 'deploy\trade-learning-review-weekly.timer' @('OnCalendar=Mon *-*-* 00:20:00 UTC', 'Persistent=true')
 Assert-Contains 'deploy\trade-learning-review-monthly.timer' @('OnCalendar=*-*-01 00:30:00 UTC', 'Persistent=true')
-Assert-Contains 'deploy\install-primary.sh' @('TRADE_API_PASSWORD_FILE', 'docker pull "$FREQTRADE_IMAGE"', 'show-config', 'list-strategies', 'systemctl reload caddy', 'trade-learning-sync.timer', 'trade-learning-review-daily.timer', 'trade-learning-review-weekly.timer', 'trade-learning-review-monthly.timer', 'trade_learning.py', 'sync_learning.py', 'review_learning.py')
+Assert-Contains 'deploy\install-primary.sh' @('TRADE_API_PASSWORD_FILE', 'docker pull "$FREQTRADE_IMAGE"', 'show-config', 'list-strategies', 'systemctl reload caddy', 'trade-learning-sync.timer', 'trade-learning-review-daily.timer', 'trade-learning-review-weekly.timer', 'trade-learning-review-monthly.timer', 'trade_learning.py', 'sync_learning.py', 'review_learning.py', 'recover_journal_trades.py', 'set_telegram_commands.py')
 Assert-Contains 'deploy\install-standby.sh' @('trade-freqtrade', 'watch.netrc', 'docker pull "$FREQTRADE_IMAGE"')
 Assert-Contains 'deploy\preflight.sh' @('At least 7 GB swap is required', 'primary', 'standby')
 Assert-Contains 'deploy\backup-to-secondary.sh' @('trade-1-freqtrade-backup.tar.gz', 'user_data', 'rsync -az')

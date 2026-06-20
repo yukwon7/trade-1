@@ -50,8 +50,10 @@ install -m 644 "$SCRIPT_DIR/community_strategies/"*.py /opt/trade-1/user_data/st
 install -m 644 "$SCRIPT_DIR/trade_learning.py" /opt/trade-1/user_data/strategies/trade_learning.py
 install -m 644 "$SCRIPT_DIR/sync_learning.py" /opt/trade-1/user_data/strategies/sync_learning.py
 install -m 644 "$SCRIPT_DIR/review_learning.py" /opt/trade-1/user_data/strategies/review_learning.py
+install -m 644 "$SCRIPT_DIR/recover_journal_trades.py" /opt/trade-1/user_data/strategies/recover_journal_trades.py
 install -m 644 "$SCRIPT_DIR/telegram_ko/sitecustomize.py" /opt/trade-1/user_data/patches/sitecustomize.py
 install -m 755 "$SCRIPT_DIR/configure-telegram.sh" /usr/local/sbin/trade-1-configure-telegram
+install -m 755 "$SCRIPT_DIR/set_telegram_commands.py" /usr/local/sbin/trade-1-set-telegram-commands
 if [[ ! -e /etc/trade-1/telegram.json ]]; then
   install -o root -g 1000 -m 640 "$SCRIPT_DIR/telegram.disabled.json" /etc/trade-1/telegram.json
 fi
