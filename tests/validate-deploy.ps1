@@ -46,7 +46,7 @@ Assert-Contains 'deploy\freqtrade.service' @('freqtradeorg/freqtrade:stable', '-
 Assert-Contains 'deploy\freqtrade.service' @('/etc/trade-1/telegram.json:/run/secrets/telegram.json:ro', '--config /run/secrets/telegram.json')
 Assert-Contains 'deploy\freqtrade.service' @('PYTHONPATH=/freqtrade/user_data/patches:/freqtrade/user_data/strategies')
 Assert-Contains 'deploy\configure-telegram.sh' @('allow_custom_messages', 'notification_settings', 'systemctl restart trade-freqtrade', '--disable')
-Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko')
+Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko', 'CommandHandler(["stake", "stake_amount"]', 'def _stake_amount', 'dry-run에서만 허용', 'TELEGRAM_STAKE_MAX', 'Telegram._startup_telegram = _startup_telegram_with_stake')
 Assert-Contains 'deploy\config.json.template' @('"dry_run": true', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', '"stake_amount": 10', '"timeframe": "5m"', '"force_entry_enable": true', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', '__API_PASSWORD__')
 Assert-Contains 'deploy\backtest.config.json' @('"dry_run": true', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT')
 Assert-Contains 'deploy\AggressiveSafeStrategy.py' @('can_short = True', 'timeframe = "4h"', 'stoploss = -0.08', 'return min(20.0, max_leverage)', 'position_adjustment_enable = False')

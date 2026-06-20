@@ -1,4 +1,4 @@
-"""Korean output patch for Freqtrade's built-in Telegram RPC.
+"""Korean output and local commands for Freqtrade's built-in Telegram RPC.
 
 Command names stay unchanged so upstream handlers remain compatible.  Only text
 sent to Telegram is translated.  Loaded automatically through PYTHONPATH.
@@ -6,7 +6,12 @@ sent to Telegram is translated.  Loaded automatically through PYTHONPATH.
 
 from __future__ import annotations
 
-from freqtrade.rpc.telegram import Telegram
+import json
+import os
+import tempfile
+from pathlib import Path
+
+from freqtrade.rpc.telegram import CommandHandler, Telegram, authorized_only
 
 
 _REPLACEMENTS = (
@@ -101,7 +106,12 @@ _REPLACEMENTS = (
     ("Short", "숏"),
     ("running", "실행 중"),
     ("stopped", "중지됨"),
+    ("Stake amount updated", "포지션당 증거금 변경 완료"),
 )
+
+_CONFIG_PATH = Path(os.getenv("TRADE_CONFIG_PATH", "/freqtrade/user_data/config.json"))
+_MIN_STAKE = float(os.getenv("TELEGRAM_STAKE_MIN", "1"))
+_MAX_STAKE = float(os.getenv("TELEGRAM_STAKE_MAX", "100"))
 
 
 def _translate_ko(message: str) -> str:
@@ -111,6 +121,8 @@ def _translate_ko(message: str) -> str:
 
 
 _original_send_msg = Telegram._send_msg
+_original_startup_telegram = Telegram._startup_telegram
+_original_help = Telegram._help
 
 
 async def _send_msg_ko(self, msg: str, *args, **kwargs):
@@ -119,4 +131,119 @@ async def _send_msg_ko(self, msg: str, *args, **kwargs):
     return await _original_send_msg(self, msg, *args, **kwargs)
 
 
+def _format_stake(value: float | int | str) -> str:
+    try:
+        numeric = float(value)
+        if numeric.is_integer():
+            return str(int(numeric))
+        return f"{numeric:.4f}".rstrip("0").rstrip(".")
+    except Exception:
+        return str(value)
+
+
+def _load_main_config() -> dict:
+    return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def _save_main_config(config: dict) -> None:
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=str(_CONFIG_PATH.parent),
+        prefix=f"{_CONFIG_PATH.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as tmp:
+        json.dump(config, tmp, ensure_ascii=False, indent=2)
+        tmp.write("\n")
+        tmp_path = Path(tmp.name)
+    tmp_path.replace(_CONFIG_PATH)
+
+
+@authorized_only
+async def _stake_amount(self, update, context) -> None:
+    """Handler for /stake.
+
+    Usage:
+    /stake       - show current stake_amount
+    /stake 20    - set stake_amount to 20 USDT for new entries
+    """
+
+    try:
+        config = _load_main_config()
+    except Exception as exc:
+        await self._send_msg(f"증거금 설정 파일을 읽지 못했습니다: `{exc}`")
+        return
+
+    current = config.get("stake_amount")
+    stake_currency = config.get("stake_currency", "USDT")
+    if not context.args:
+        await self._send_msg(
+            "포지션당 증거금 설정\n"
+            f"현재: `{_format_stake(current)} {stake_currency}`\n"
+            f"변경: `/stake 20` 처럼 입력하세요. 허용 범위: "
+            f"`{_format_stake(_MIN_STAKE)}~{_format_stake(_MAX_STAKE)} {stake_currency}`\n"
+            "주의: 이미 열린 포지션은 바뀌지 않고 다음 신규 진입부터 적용됩니다."
+        )
+        return
+
+    raw_value = str(context.args[0]).strip().replace(",", "")
+    try:
+        new_stake = float(raw_value)
+    except ValueError:
+        await self._send_msg("숫자로 입력하세요. 예: `/stake 20`")
+        return
+
+    if not (_MIN_STAKE <= new_stake <= _MAX_STAKE):
+        await self._send_msg(
+            f"거부됨: 허용 범위는 `{_format_stake(_MIN_STAKE)}~"
+            f"{_format_stake(_MAX_STAKE)} {stake_currency}` 입니다."
+        )
+        return
+
+    if not config.get("dry_run", False):
+        await self._send_msg("거부됨: 이 텔레그램 증거금 변경 명령은 dry-run에서만 허용됩니다.")
+        return
+
+    config["stake_amount"] = int(new_stake) if new_stake.is_integer() else new_stake
+    try:
+        _save_main_config(config)
+        msg = self._rpc._rpc_reload_config()
+    except Exception as exc:
+        await self._send_msg(f"설정 변경 실패: `{exc}`")
+        return
+
+    notional = new_stake * 20
+    await self._send_msg(
+        "포지션당 증거금 변경 완료\n"
+        f"이전: `{_format_stake(current)} {stake_currency}`\n"
+        f"현재: `{_format_stake(new_stake)} {stake_currency}`\n"
+        f"20배 기준 명목 포지션: 약 `{_format_stake(notional)} {stake_currency}`\n"
+        f"반영 상태: `{msg.get('status', 'reloaded')}`\n"
+        "적용 범위: 다음 신규 포지션부터"
+    )
+
+
+async def _startup_telegram_with_stake(self, *args, **kwargs):
+    if not getattr(self, "_trade1_stake_handler_registered", False):
+        self._app.add_handler(CommandHandler(["stake", "stake_amount"], self._stake_amount))
+        self._trade1_stake_handler_registered = True
+    return await _original_startup_telegram(self, *args, **kwargs)
+
+
+@authorized_only
+async def _help_with_stake(self, update, context) -> None:
+    await _original_help(self, update, context)
+    await self._send_msg(
+        "_Trade-1 추가 명령_\n"
+        "------------\n"
+        "*/stake:* `현재 포지션당 증거금 표시`\n"
+        "*/stake <USDT>:* `다음 신규 포지션부터 사용할 증거금 변경. 예: /stake 20`"
+    )
+
+
 Telegram._send_msg = _send_msg_ko
+Telegram._stake_amount = _stake_amount
+Telegram._startup_telegram = _startup_telegram_with_stake
+Telegram._help = _help_with_stake

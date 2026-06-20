@@ -78,6 +78,13 @@ sudo trade-1-configure-telegram /secure/telegram-token /secure/telegram-chat-id
 
 발신 메시지는 `user_data/patches/sitecustomize.py` 패치로 한국어 번역된다. Freqtrade 호환성을 위해 `/status`, `/profit`, `/balance`, `/help` 같은 명령어 이름은 영문을 유지한다.
 
+추가 명령:
+
+- `/stake`: 현재 포지션당 증거금을 표시한다.
+- `/stake 20`: 다음 신규 포지션부터 사용할 증거금을 20 USDT로 변경한다.
+
+이 명령은 `dry_run` 설정에서만 동작하며 기본 허용 범위는 1~100 USDT다. 이미 열린 포지션에는 적용되지 않는다.
+
 ## 운영 명령
 
 ```bash
