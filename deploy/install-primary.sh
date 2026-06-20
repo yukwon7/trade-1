@@ -34,6 +34,7 @@ ws_token="$(openssl rand -hex 32)"
 
 install -d -m 700 /etc/trade-1 /var/lib/trade-1-backup
 install -d -m 750 /opt/trade-1/user_data/{strategies,data,logs,backtest_results,learning}
+install -d -o 1000 -g 1000 -m 750 /opt/trade-1/research/user_data/{strategies,data,backtest_results}
 install -d -m 755 /opt/trade-1/user_data/patches
 install -d -m 750 /etc/caddy /etc/caddy/Caddyfile.d
 install -m 644 "$SCRIPT_DIR/freqtrade.service" /etc/systemd/system/trade-freqtrade.service
@@ -51,9 +52,15 @@ install -m 644 "$SCRIPT_DIR/trade_learning.py" /opt/trade-1/user_data/strategies
 install -m 644 "$SCRIPT_DIR/sync_learning.py" /opt/trade-1/user_data/strategies/sync_learning.py
 install -m 644 "$SCRIPT_DIR/review_learning.py" /opt/trade-1/user_data/strategies/review_learning.py
 install -m 644 "$SCRIPT_DIR/recover_journal_trades.py" /opt/trade-1/user_data/strategies/recover_journal_trades.py
+install -o 1000 -g 1000 -m 644 "$SCRIPT_DIR/research/FiveModelStrategies.py" /opt/trade-1/research/user_data/strategies/FiveModelStrategies.py
+install -m 644 "$SCRIPT_DIR/research/FiveModelStrategies.py" /opt/trade-1/user_data/strategies/FiveModelStrategies.py
+install -o 1000 -g 1000 -m 644 "$SCRIPT_DIR/backtest.config.json" /opt/trade-1/research/user_data/config.json
+install -o 1000 -g 1000 -m 644 "$SCRIPT_DIR/research/lookahead.config.json" /opt/trade-1/research/user_data/lookahead.config.json
 install -m 644 "$SCRIPT_DIR/telegram_ko/sitecustomize.py" /opt/trade-1/user_data/patches/sitecustomize.py
 install -m 755 "$SCRIPT_DIR/configure-telegram.sh" /usr/local/sbin/trade-1-configure-telegram
 install -m 755 "$SCRIPT_DIR/set_telegram_commands.py" /usr/local/sbin/trade-1-set-telegram-commands
+install -m 755 "$SCRIPT_DIR/research/run-five-model-backtests.sh" /usr/local/sbin/trade-1-run-five-model-backtests
+install -m 755 "$SCRIPT_DIR/research/validate-winner.sh" /usr/local/sbin/trade-1-validate-winner
 if [[ ! -e /etc/trade-1/telegram.json ]]; then
   install -o root -g 1000 -m 640 "$SCRIPT_DIR/telegram.disabled.json" /etc/trade-1/telegram.json
 fi
@@ -88,7 +95,7 @@ docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data "$FREQTRADE_IMAGE
 docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data -v /etc/trade-1/telegram.json:/run/secrets/telegram.json:ro "$FREQTRADE_IMAGE" \
   show-config --config /freqtrade/user_data/config.json --config /run/secrets/telegram.json >/dev/null
 docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data "$FREQTRADE_IMAGE" \
-  list-strategies | grep -Fq FReinforced20Strategy
+  list-strategies | grep -Fq ModelMacdMomentum
 caddy validate --config /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now caddy

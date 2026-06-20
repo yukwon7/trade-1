@@ -1,0 +1,10 @@
+{
+  "entry_pricing": {
+    "price_side": "other",
+    "use_order_book": true
+  },
+  "exit_pricing": {
+    "price_side": "other",
+    "use_order_book": true
+  }
+}

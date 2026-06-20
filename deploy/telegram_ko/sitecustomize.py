@@ -128,6 +128,7 @@ _LEARNING_DB_PATH = Path(
 )
 _MIN_STAKE = float(os.getenv("TELEGRAM_STAKE_MIN", "1"))
 _MAX_STAKE = float(os.getenv("TELEGRAM_STAKE_MAX", "100"))
+_DISPLAY_LEVERAGE = float(os.getenv("TELEGRAM_LEVERAGE", "5"))
 _KST = timezone(timedelta(hours=9))
 logger = logging.getLogger(__name__)
 
@@ -258,12 +259,12 @@ async def _stake_amount(self, update, context) -> None:
     current = config.get("stake_amount")
     stake_currency = config.get("stake_currency", "USDT")
     if not context.args:
-        notional = float(current or 0) * 20
+        notional = float(current or 0) * _DISPLAY_LEVERAGE
         await self._send_msg(
             "💵 *포지션 금액 설정*\n"
             f"{_DIVIDER}\n"
             f"현재 증거금  `{_format_stake(current)} {stake_currency}`\n"
-            f"20배 포지션  `약 {_format_stake(notional)} {stake_currency}`\n"
+            f"{_format_stake(_DISPLAY_LEVERAGE)}배 포지션  `약 {_format_stake(notional)} {stake_currency}`\n"
             f"허용 범위    `{_format_stake(_MIN_STAKE)} ~ {_format_stake(_MAX_STAKE)} {stake_currency}`\n\n"
             "*변경 방법*\n"
             "`/stake 20`\n\n"
@@ -299,13 +300,13 @@ async def _stake_amount(self, update, context) -> None:
         await self._send_msg(f"🔴 *설정 변경 실패*\n{_DIVIDER}\n`{exc}`")
         return
 
-    notional = new_stake * 20
+    notional = new_stake * _DISPLAY_LEVERAGE
     await self._send_msg(
         "✅ *포지션 금액 변경 완료*\n"
         f"{_DIVIDER}\n"
         f"이전  `{_format_stake(current)} {stake_currency}`\n"
         f"현재  `{_format_stake(new_stake)} {stake_currency}`\n"
-        f"20배 포지션  `약 {_format_stake(notional)} {stake_currency}`\n\n"
+        f"{_format_stake(_DISPLAY_LEVERAGE)}배 포지션  `약 {_format_stake(notional)} {stake_currency}`\n\n"
         f"상태  `{msg.get('status', 'reloaded')}`\n"
         "_다음 신규 포지션부터 적용됩니다._"
     )

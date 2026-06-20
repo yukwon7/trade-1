@@ -14,10 +14,10 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 ## 모의 전략
 
-- 활성 전략: `FReinforced20Strategy`
+- 활성 전략: `ModelMacdMomentum` (15분봉, 격리 5배, 손절 -3%, 단타 ROI)
 - 페어: `BTC/USDT:USDT`, `ETH/USDT:USDT`, `SOL/USDT:USDT`
 - 동시 포지션: 최대 3개
-- 롱/숏 레버리지: 거래소 허용 범위 내 최대 20배
+- 롱/숏 레버리지: 거래소 허용 범위 내 최대 5배
 - 타임프레임: 5분 (1시간 추세 필터)
 - 방향: Long/Short
 - 마진: 격리
@@ -63,9 +63,9 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 - `FAdxSmaStrategy`: 1시간봉, 롱·숏, 32회, 총수익률 -0.50%
 - `FReinforcedStrategy`: 5분봉+1시간 추세 필터, 롱·숏, 총수익률 -1.86%; Freqtrade 2026.5.1 호환성 수정 포함
-- `FReinforced20Strategy`: ADX 20 이상 추세 정렬에서 진입하는 20배·증거금 10 USDT 드라이런 변형
+- `ModelMacdMomentum`: MACD 교차를 EMA200·RSI·ADX로 확인하는 5배 Long/Short 단타 전략
 
-현재 활성 전략은 `FReinforced20Strategy`이며 수익성이 입증된 전략은 아니다. NFI 계열은 40~80페어와 6~12개 포지션을 권장하고 계산량과 포지션 추가 진입이 커 현재 서버 구성에서는 제외했다.
+현재 활성 전략은 동일 조건 5개 후보 중 양의 검증 수익을 기록한 `ModelMacdMomentum`이다. 백테스트는 미래 수익을 보장하지 않으며 계속 dry-run으로 검증한다. NFI 계열은 40~80페어와 6~12개 포지션을 권장하고 계산량과 포지션 추가 진입이 커 현재 서버 구성에서는 제외했다.
 - 최대 낙폭: 4.03%
 - Profit factor: 0.92
 

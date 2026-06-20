@@ -220,6 +220,8 @@ def infer_source(enter_tag: str | None) -> str:
         "trend_adx20_short",
         "recent_bull_cross",
         "recent_bear_cross",
+        "macd_momentum_long",
+        "macd_momentum_short",
     }
     return "auto" if tag in automatic_tags else "manual"
 
@@ -236,6 +238,10 @@ def entry_reason(pair: str, side: str, enter_tag: str | None) -> str:
             f"{pair} short: 5분 종가가 1시간 SMA 아래, 단기 EMA가 장기 EMA 아래, "
             "ADX가 기준값 이상이라 하락 추세 신호로 진입"
         )
+    if tag == "macd_momentum_long":
+        return f"{pair} long: MACD 상향 교차와 EMA200·RSI·ADX 상승 모멘텀이 일치해 진입"
+    if tag == "macd_momentum_short":
+        return f"{pair} short: MACD 하향 교차와 EMA200·RSI·ADX 하락 모멘텀이 일치해 진입"
     if tag.startswith(("force", "manual", "fill", "refill", "initial")):
         return f"{pair} {side}: 사용자가 수동/강제 진입한 포지션"
     return f"{pair} {side}: enter_tag={tag} 신호로 진입"

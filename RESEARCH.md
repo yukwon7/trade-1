@@ -28,3 +28,49 @@
 - 48회 거래, 총수익률 -1.09%
 - 최대 낙폭 4.03%, Profit factor 0.92
 - 위험 제한은 작동했지만 기대수익이 음수이므로 실거래 부적합
+
+## 5개 신호 모델 비교 (2026-06-20)
+
+### 참고 자료
+
+- [Freqtrade 공식 전략 작성 문서](https://www.freqtrade.io/en/stable/strategy-customization/): 완성된 캔들만 사용하고 startup candle을 확보하는 원칙을 적용했다.
+- [Freqtrade 공식 백테스트 문서](https://www.freqtrade.io/en/stable/backtesting/): 정적 페어 목록, 동일 시작 잔고, 명시적 수수료로 재현 가능한 비교를 구성했다.
+- [Freqtrade 공식 lookahead-analysis 문서](https://www.freqtrade.io/en/stable/lookahead-analysis/): 우승 후보에 미래 데이터 참조 검사를 수행한다.
+- [freqtrade/freqtrade-strategies FSupertrendStrategy](https://github.com/freqtrade/freqtrade-strategies/blob/main/user_data/strategies/futures/FSupertrendStrategy.py): ATR 기반 Supertrend 방향 전환 구조를 참고했다.
+- [freqtrade/freqtrade-strategies BbandRsi](https://github.com/freqtrade/freqtrade-strategies/blob/main/user_data/strategies/berlinguyinca/BbandRsi.py): Bollinger Band와 RSI 평균회귀 조합을 참고했다.
+- [AQR Time Series Momentum](https://www.aqr.com/Insights/Research/Journal-Article/Time-Series-Momentum): 시계열 모멘텀과 추세 지속성의 연구 근거를 참고했다.
+- [John Bollinger의 공식 Bollinger Band 규칙](https://www.bollingerbands.com/bollinger-band-rules): 밴드 접촉 하나만으로 신호를 확정하지 않고 RSI·ADX 확인 조건을 결합했다.
+
+### 후보
+
+1. `ModelEmaAdxTrend`: EMA 20/50/200 + ADX + RSI 추세 추종
+2. `ModelBollingerRsiReversion`: Bollinger 2.2σ + RSI + 저ADX 평균회귀
+3. `ModelDonchianAtrBreakout`: Donchian 24봉 돌파 + ATR + 거래량
+4. `ModelMacdMomentum`: MACD 교차 + EMA200 + RSI/ADX 모멘텀
+5. `ModelSupertrendConsensus`: ATR Supertrend 전환 + EMA200 + RSI
+
+### 공정 비교 조건
+
+- Binance USDT 무기한 선물 BTC·ETH·SOL, 15분봉
+- 동일 격리 5배, 포지션당 100 USDT, 동시 최대 3개
+- 동일 손절 -3%, 단타 ROI 2%→1.2%→0%, 동일 추적익절
+- 진입·청산 각각 0.04% 수수료
+- 개발 구간 `2025-06-18~2026-03-18`, 검증 구간 `2026-03-18~2026-06-19`
+- 검증 구간에서 양의 총수익과 충분한 거래 수를 만족한 후보 중 승률 1위를 선택
+
+### 최종 검증 결과
+
+사용자 요청에 따라 최종 조건을 격리 5배, 손절 -3%, 단타 ROI 2%→1.2%로 변경하고
+미사용 최근 3개월(`2026-03-18~2026-06-19`)을 다시 검증했다.
+
+| 모델 | 거래 | 승률 | 총수익 | 최대낙폭 | 판정 |
+|---|---:|---:|---:|---:|---|
+| ModelEmaAdxTrend | 94 | 58.5% | -3.20% | 3.98% | 제외 |
+| ModelBollingerRsiReversion | 614 | 61.6% | -16.42% | 19.47% | 제외 |
+| ModelDonchianAtrBreakout | 1,131 | 59.0% | -21.27% | 23.29% | 제외 |
+| **ModelMacdMomentum** | **508** | **53.5%** | **+0.01%** | **4.05%** | **선택** |
+| ModelSupertrendConsensus | 343 | 60.1% | -7.06% | 8.83% | 제외 |
+
+승률만 보면 Bollinger/RSI가 가장 높지만 총손실 모델을 배포하지 않는 사전 기준에 따라 제외했다.
+양의 총수익을 만족한 후보 중 승률 1위인 `ModelMacdMomentum`을 dry-run 전략으로 선택했다.
+수익 우위가 매우 작으므로 실거래 근거가 아니며, 일·주·월 복기와 추가 dry-run 검증을 계속한다.
