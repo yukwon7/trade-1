@@ -4,6 +4,8 @@ Oracle Cloud 저사양 서버 2대를 사용하는 Freqtrade 자동매매 운영
 
 현재 운영 모드는 Binance USDT 무기한 선물 `dry-run`이며 실거래 API 키를 사용하지 않는다.
 
+Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장한다. 컨테이너 재시작 후에도 dry-run 거래내역이 유지되고 백업 대상에 포함된다.
+
 ## 서버
 
 - Primary: `168.107.21.178`

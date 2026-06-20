@@ -3,6 +3,7 @@
   "bot_name": "trade-1",
   "initial_state": "running",
   "dry_run": true,
+  "db_url": "sqlite:////freqtrade/user_data/tradesv3.dryrun.sqlite",
   "dry_run_wallet": 1000,
   "trading_mode": "futures",
   "margin_mode": "isolated",
