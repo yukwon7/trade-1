@@ -30,7 +30,7 @@ class _ResearchBase(IStrategy):
     process_only_new_candles = True
     position_adjustment_enable = False
 
-    # Common risk controls for a fair signal-model comparison at 20x.
+    # Common risk controls for a fair signal-model comparison at 5x.
     minimal_roi = {"0": 0.02, "60": 0.012, "180": 0.0}
     stoploss = -0.03
     trailing_stop = True
@@ -232,6 +232,162 @@ class ModelMacdMomentum(_ResearchBase):
             qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"]),
             ["exit_short", "exit_tag"],
         ] = (1, "macd_cross_exit")
+        return dataframe
+
+
+class ModelMacdMomentumLoose(ModelMacdMomentum):
+    """Looser 15m candidate for more entries without 5m fee churn."""
+
+    entry_adx_threshold = 15
+    trend_ema_period = 100
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        macd = ta.MACD(dataframe, fastperiod=12, slowperiod=26, signalperiod=9)
+        dataframe["macd"] = macd["macd"]
+        dataframe["macdsignal"] = macd["macdsignal"]
+        dataframe["macdhist"] = macd["macdhist"]
+        dataframe["trend_ema"] = ta.EMA(dataframe, timeperiod=self.trend_ema_period)
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        dataframe["adx"] = ta.ADX(dataframe, timeperiod=14)
+        return dataframe
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["close"] > dataframe["trend_ema"])
+            & (dataframe["rsi"].between(45, 74))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_long", "enter_tag"],
+        ] = (1, "macd_loose_long")
+        dataframe.loc[
+            qtpylib.crossed_below(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["close"] < dataframe["trend_ema"])
+            & (dataframe["rsi"].between(26, 55))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_short", "enter_tag"],
+        ] = (1, "macd_loose_short")
+        return dataframe
+
+
+class ModelMacdMomentumLoose18(ModelMacdMomentumLoose):
+    entry_adx_threshold = 18
+
+
+class ModelMacdMomentumLoose22(ModelMacdMomentumLoose):
+    entry_adx_threshold = 22
+
+
+class ModelMacdMomentumLoose150(ModelMacdMomentumLoose):
+    trend_ema_period = 150
+
+
+class ModelMacdMomentumLoose200(ModelMacdMomentumLoose):
+    trend_ema_period = 200
+
+
+class ModelMacdMomentumActive(_ResearchBase):
+    """Balanced 5m MACD crossover with configurable trend-strength filter."""
+
+    timeframe = "5m"
+    entry_adx_threshold = 18
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        macd = ta.MACD(dataframe, fastperiod=12, slowperiod=26, signalperiod=9)
+        dataframe["macd"] = macd["macd"]
+        dataframe["macdsignal"] = macd["macdsignal"]
+        dataframe["macdhist"] = macd["macdhist"]
+        dataframe["ema200"] = ta.EMA(dataframe, timeperiod=200)
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        dataframe["adx"] = ta.ADX(dataframe, timeperiod=14)
+        return dataframe
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["macdhist"] > 0)
+            & (dataframe["close"] > dataframe["ema200"])
+            & (dataframe["rsi"].between(50, 70))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_long", "enter_tag"],
+        ] = (1, "macd_active_long")
+        dataframe.loc[
+            qtpylib.crossed_below(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["macdhist"] < 0)
+            & (dataframe["close"] < dataframe["ema200"])
+            & (dataframe["rsi"].between(30, 50))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_short", "enter_tag"],
+        ] = (1, "macd_active_short")
+        return dataframe
+
+    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            qtpylib.crossed_below(dataframe["macd"], dataframe["macdsignal"]),
+            ["exit_long", "exit_tag"],
+        ] = (1, "macd_active_cross_exit")
+        dataframe.loc[
+            qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"]),
+            ["exit_short", "exit_tag"],
+        ] = (1, "macd_active_cross_exit")
+        return dataframe
+
+
+class ModelMacdMomentumActive24(ModelMacdMomentumActive):
+    entry_adx_threshold = 24
+
+
+class ModelMacdMomentumActive26(ModelMacdMomentumActive):
+    entry_adx_threshold = 26
+
+
+class ModelMacdMomentumActive28(ModelMacdMomentumActive):
+    entry_adx_threshold = 28
+
+
+class ModelMacdMomentumActive30(ModelMacdMomentumActive):
+    entry_adx_threshold = 30
+
+
+class ModelMacdMomentumFast(_ResearchBase):
+    """Highest-frequency 5m MACD candidate with broad momentum guardrails."""
+
+    timeframe = "5m"
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        macd = ta.MACD(dataframe, fastperiod=8, slowperiod=21, signalperiod=5)
+        dataframe["macd"] = macd["macd"]
+        dataframe["macdsignal"] = macd["macdsignal"]
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        return dataframe
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["rsi"].between(38, 76))
+            & (dataframe["volume"] > 0),
+            ["enter_long", "enter_tag"],
+        ] = (1, "macd_fast_long")
+        dataframe.loc[
+            qtpylib.crossed_below(dataframe["macd"], dataframe["macdsignal"])
+            & (dataframe["rsi"].between(24, 62))
+            & (dataframe["volume"] > 0),
+            ["enter_short", "enter_tag"],
+        ] = (1, "macd_fast_short")
+        return dataframe
+
+    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            qtpylib.crossed_below(dataframe["macd"], dataframe["macdsignal"]),
+            ["exit_long", "exit_tag"],
+        ] = (1, "macd_fast_cross_exit")
+        dataframe.loc[
+            qtpylib.crossed_above(dataframe["macd"], dataframe["macdsignal"]),
+            ["exit_short", "exit_tag"],
+        ] = (1, "macd_fast_cross_exit")
         return dataframe
 
 

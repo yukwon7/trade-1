@@ -222,6 +222,8 @@ def infer_source(enter_tag: str | None) -> str:
         "recent_bear_cross",
         "macd_momentum_long",
         "macd_momentum_short",
+        "macd_loose_long",
+        "macd_loose_short",
     }
     return "auto" if tag in automatic_tags else "manual"
 
@@ -242,6 +244,10 @@ def entry_reason(pair: str, side: str, enter_tag: str | None) -> str:
         return f"{pair} long: MACD 상향 교차와 EMA200·RSI·ADX 상승 모멘텀이 일치해 진입"
     if tag == "macd_momentum_short":
         return f"{pair} short: MACD 하향 교차와 EMA200·RSI·ADX 하락 모멘텀이 일치해 진입"
+    if tag == "macd_loose_long":
+        return f"{pair} long: MACD 상향 교차와 EMA150·완화 RSI·ADX 상승 조건이 일치해 진입"
+    if tag == "macd_loose_short":
+        return f"{pair} short: MACD 하향 교차와 EMA150·완화 RSI·ADX 하락 조건이 일치해 진입"
     if tag.startswith(("force", "manual", "fill", "refill", "initial")):
         return f"{pair} {side}: 사용자가 수동/강제 진입한 포지션"
     return f"{pair} {side}: enter_tag={tag} 신호로 진입"

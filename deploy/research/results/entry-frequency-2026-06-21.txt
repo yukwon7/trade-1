@@ -1,0 +1,37 @@
+Entry-frequency comparison
+Date: 2026-06-21
+Market: Binance USDT futures, BTC/ETH/SOL
+Risk: isolated 5x, max 3 positions, 100 USDT stake, -3% stoploss
+Fee: 0.0002 per side
+Primary timerange: 2026-03-18 to 2026-06-19
+
+Existing ModelMacdMomentum (15m)
+- Trades: 508
+- Total profit: +0.01%
+- Max drawdown: 4.05%
+
+ModelMacdMomentumActive28 (5m)
+- Trades: 395
+- Total profit: -5.68%
+- Max drawdown: 7.71%
+
+ModelMacdMomentumActive30 (5m)
+- Trades: 300
+- Total profit: -4.56%
+- Max drawdown: 6.24%
+
+ModelMacdMomentumLoose (15m, EMA100, ADX15)
+- Trades: 822
+- Total profit: -0.55%
+- Max drawdown: 9.09%
+
+Selected ModelMacdMomentumLoose150 (15m, EMA150, ADX15)
+- Trades: 817
+- Total profit: +0.44%
+- Max drawdown: 5.94%
+- Win rate: 53.7%
+
+Decision:
+Use the 15m EMA150/ADX15 model in dry-run. It increased trade count by
+about 61% over the existing model without accepting the sustained losses
+seen in the 5m candidates.

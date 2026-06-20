@@ -10,7 +10,7 @@
   "liquidation_buffer": 0.10,
   "max_open_trades": 3,
   "stake_currency": "USDT",
-  "stake_amount": 10,
+  "stake_amount": 100,
   "tradable_balance_ratio": 0.99,
   "fiat_display_currency": "USD",
   "timeframe": "15m",

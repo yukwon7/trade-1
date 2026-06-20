@@ -14,17 +14,16 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 ## 모의 전략
 
-- 활성 전략: `ModelMacdMomentum` (15분봉, 격리 5배, 손절 -3%, 단타 ROI)
+- 활성 전략: `ModelMacdMomentumLoose150` (15분봉 완화형, 격리 5배, 손절 -3%, 단타 ROI)
 - 페어: `BTC/USDT:USDT`, `ETH/USDT:USDT`, `SOL/USDT:USDT`
 - 동시 포지션: 최대 3개
 - 롱/숏 레버리지: 거래소 허용 범위 내 최대 5배
-- 타임프레임: 5분 (1시간 추세 필터)
+- 타임프레임: 15분
 - 방향: Long/Short
 - 마진: 격리
 - 모의지갑: 1,000 USDT
-- 주문 증거금: 10 USDT
-- 손실 청산: -5% 전에는 전략 청산 거부, -5%부터 전략 청산 허용, -8% 하드 손절
-- 재진입 대기: 청산 후 같은 페어 12개 봉(1시간)
+- 주문 증거금: 기본 100 USDT (텔레그램 `/stake`로 변경 가능)
+- 손실 청산: -3% 하드 손절
 - 추가매수: 비활성화
 - 학습 DB: 진입 당시 지표와 청산 결과를 SQLite에 저장하고, 충분한 표본에서 성과가 나쁜 자동 신호만 보수적으로 차단
 
@@ -63,9 +62,9 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 - `FAdxSmaStrategy`: 1시간봉, 롱·숏, 32회, 총수익률 -0.50%
 - `FReinforcedStrategy`: 5분봉+1시간 추세 필터, 롱·숏, 총수익률 -1.86%; Freqtrade 2026.5.1 호환성 수정 포함
-- `ModelMacdMomentum`: MACD 교차를 EMA200·RSI·ADX로 확인하는 5배 Long/Short 단타 전략
+- `ModelMacdMomentumLoose150`: MACD 교차를 EMA150·완화 RSI·ADX 15로 확인하는 5배 Long/Short 단타 전략
 
-현재 활성 전략은 동일 조건 5개 후보 중 양의 검증 수익을 기록한 `ModelMacdMomentum`이다. 백테스트는 미래 수익을 보장하지 않으며 계속 dry-run으로 검증한다. NFI 계열은 40~80페어와 6~12개 포지션을 권장하고 계산량과 포지션 추가 진입이 커 현재 서버 구성에서는 제외했다.
+현재 활성 전략은 기존 MACD 모델보다 3개월 거래 수를 508회에서 817회로 늘리면서 +0.44%를 기록한 `ModelMacdMomentumLoose150`이다. 5분봉 후보는 같은 3개월 구간에서 손실이어서 배포하지 않았다. 백테스트는 미래 수익을 보장하지 않으며 계속 dry-run으로 검증한다.
 - 최대 낙폭: 4.03%
 - Profit factor: 0.92
 
