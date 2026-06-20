@@ -13,6 +13,11 @@ from pathlib import Path
 
 from freqtrade.rpc.telegram import CommandHandler, Telegram, authorized_only
 
+try:
+    from trade_learning import latest_review_summary
+except Exception:
+    latest_review_summary = None
+
 
 _REPLACEMENTS = (
     ("Dry run is enabled. All trades are simulated.", "모의투자가 활성화되어 있습니다. 모든 거래는 가상 체결입니다."),
@@ -225,9 +230,42 @@ async def _stake_amount(self, update, context) -> None:
     )
 
 
+@authorized_only
+async def _learn_review(self, update, context) -> None:
+    command = ""
+    if update and getattr(update, "effective_message", None):
+        text = getattr(update.effective_message, "text", "") or ""
+        command = text.split()[0].lstrip("/").split("@")[0]
+
+    kind = "daily"
+    if command in {"learn_weekly", "weekly_review"}:
+        kind = "weekly"
+    elif command in {"learn_monthly", "monthly_review"}:
+        kind = "monthly"
+    elif context.args and context.args[0] in {"daily", "weekly", "monthly"}:
+        kind = context.args[0]
+
+    if latest_review_summary is None:
+        await self._send_msg("복기 DB 모듈을 불러오지 못했습니다.")
+        return
+    try:
+        summary = latest_review_summary(kind)
+    except Exception as exc:
+        await self._send_msg(f"복기 리포트를 읽지 못했습니다: `{exc}`")
+        return
+    label = {"daily": "일일", "weekly": "주간", "monthly": "월간"}[kind]
+    await self._send_msg(f"*{label} 학습 복기*\n```text\n{summary}\n```")
+
+
 async def _startup_telegram_with_stake(self, *args, **kwargs):
     if not getattr(self, "_trade1_stake_handler_registered", False):
         self._app.add_handler(CommandHandler(["stake", "stake_amount"], self._stake_amount))
+        self._app.add_handler(
+            CommandHandler(
+                ["learn", "learn_daily", "daily_review", "learn_weekly", "weekly_review", "learn_monthly", "monthly_review"],
+                self._learn_review,
+            )
+        )
         self._trade1_stake_handler_registered = True
     return await _original_startup_telegram(self, *args, **kwargs)
 
@@ -239,11 +277,15 @@ async def _help_with_stake(self, update, context) -> None:
         "_Trade-1 추가 명령_\n"
         "------------\n"
         "*/stake:* `현재 포지션당 증거금 표시`\n"
-        "*/stake <USDT>:* `다음 신규 포지션부터 사용할 증거금 변경. 예: /stake 20`"
+        "*/stake <USDT>:* `다음 신규 포지션부터 사용할 증거금 변경. 예: /stake 20`\n"
+        "*/learn:* `최근 일일 복기 표시`\n"
+        "*/learn_weekly:* `최근 주간 복기 표시`\n"
+        "*/learn_monthly:* `최근 월간 복기 표시`"
     )
 
 
 Telegram._send_msg = _send_msg_ko
 Telegram._stake_amount = _stake_amount
+Telegram._learn_review = _learn_review
 Telegram._startup_telegram = _startup_telegram_with_stake
 Telegram._help = _help_with_stake

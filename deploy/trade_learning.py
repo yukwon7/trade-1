@@ -23,6 +23,7 @@ DB_PATH = os.getenv(
 MIN_PAIR_SAMPLES = int(os.getenv("TRADE_LEARNING_MIN_PAIR_SAMPLES", "20"))
 MIN_GLOBAL_SAMPLES = int(os.getenv("TRADE_LEARNING_MIN_GLOBAL_SAMPLES", "30"))
 MIN_WINRATE = float(os.getenv("TRADE_LEARNING_MIN_WINRATE", "0.35"))
+MIN_REVIEW_SAMPLES = int(os.getenv("TRADE_LEARNING_MIN_REVIEW_SAMPLES", "6"))
 
 
 def utcnow() -> str:
@@ -130,6 +131,78 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             event_type TEXT NOT NULL,
             message TEXT NOT NULL,
             data_json TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS daily_reviews (
+            review_date TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            trade_count INTEGER NOT NULL,
+            closed_count INTEGER NOT NULL,
+            win_count INTEGER NOT NULL,
+            loss_count INTEGER NOT NULL,
+            total_profit REAL NOT NULL,
+            avg_profit REAL NOT NULL,
+            best_context_json TEXT NOT NULL,
+            worst_context_json TEXT NOT NULL,
+            market_snapshot_json TEXT NOT NULL,
+            lessons_json TEXT NOT NULL,
+            summary_ko TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS weekly_reviews (
+            week_start TEXT PRIMARY KEY,
+            week_end TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            day_count INTEGER NOT NULL,
+            trade_count INTEGER NOT NULL,
+            closed_count INTEGER NOT NULL,
+            win_count INTEGER NOT NULL,
+            loss_count INTEGER NOT NULL,
+            total_profit REAL NOT NULL,
+            avg_profit REAL NOT NULL,
+            common_good_json TEXT NOT NULL,
+            common_bad_json TEXT NOT NULL,
+            rule_candidates_json TEXT NOT NULL,
+            summary_ko TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS monthly_reviews (
+            month_start TEXT PRIMARY KEY,
+            month_end TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            week_count INTEGER NOT NULL,
+            day_count INTEGER NOT NULL,
+            trade_count INTEGER NOT NULL,
+            closed_count INTEGER NOT NULL,
+            win_count INTEGER NOT NULL,
+            loss_count INTEGER NOT NULL,
+            total_profit REAL NOT NULL,
+            avg_profit REAL NOT NULL,
+            common_good_json TEXT NOT NULL,
+            common_bad_json TEXT NOT NULL,
+            rule_candidates_json TEXT NOT NULL,
+            summary_ko TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS learning_rules (
+            rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            source TEXT NOT NULL,
+            rule_type TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            pair TEXT NOT NULL,
+            side TEXT NOT NULL,
+            enter_tag TEXT NOT NULL,
+            condition_json TEXT NOT NULL,
+            action TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            sample_count INTEGER NOT NULL,
+            winrate REAL NOT NULL,
+            avg_profit REAL NOT NULL,
+            enabled INTEGER NOT NULL,
+            reason_ko TEXT NOT NULL,
+            UNIQUE(source, rule_type, scope, pair, side, enter_tag, condition_json, action)
         );
         """
     )
@@ -260,6 +333,10 @@ def record_entry_decision(
 def should_block_signal(pair: str, side: str, enter_tag: str | None) -> tuple[bool, str | None]:
     tag = normalize_tag(enter_tag)
     with connect() as conn:
+        rule = _matching_block_rule(conn, pair, side, tag)
+        if rule:
+            return True, str(rule["reason_ko"])
+
         exact = conn.execute(
             """
             SELECT sample_count, winrate, avg_profit
@@ -290,6 +367,70 @@ def should_block_signal(pair: str, side: str, enter_tag: str | None) -> tuple[bo
                 f"winrate={global_row['winrate']:.2f} avg_profit={global_row['avg_profit']:.5f}",
             )
     return False, None
+
+
+def _matching_block_rule(
+    conn: sqlite3.Connection, pair: str, side: str, enter_tag: str
+) -> sqlite3.Row | None:
+    rules = conn.execute(
+        """
+        SELECT *
+        FROM learning_rules
+        WHERE enabled = 1
+          AND action = 'block_entry'
+          AND side IN (?, '*')
+          AND enter_tag IN (?, '*')
+          AND pair IN (?, '*')
+        ORDER BY confidence DESC, sample_count DESC, updated_at DESC
+        LIMIT 20
+        """,
+        (side, enter_tag, pair),
+    ).fetchall()
+    for rule in rules:
+        try:
+            condition = json.loads(rule["condition_json"])
+        except Exception:
+            condition = {}
+        if condition.get("type") in (None, "signal_context"):
+            return rule
+    return None
+
+
+def get_exit_decision(
+    pair: str,
+    side: str,
+    enter_tag: str | None,
+    current_profit: float,
+) -> tuple[str | None, str | None]:
+    tag = normalize_tag(enter_tag)
+    with connect() as conn:
+        rules = conn.execute(
+            """
+            SELECT *
+            FROM learning_rules
+            WHERE enabled = 1
+              AND action IN ('take_profit', 'cut_loss')
+              AND side IN (?, '*')
+              AND enter_tag IN (?, '*')
+              AND pair IN (?, '*')
+            ORDER BY confidence DESC, sample_count DESC, updated_at DESC
+            LIMIT 20
+            """,
+            (side, tag, pair),
+        ).fetchall()
+    for rule in rules:
+        try:
+            condition = json.loads(rule["condition_json"])
+        except Exception:
+            condition = {}
+        threshold = _to_float(condition.get("profit_ratio"))
+        if threshold is None:
+            continue
+        if rule["action"] == "take_profit" and current_profit >= threshold:
+            return "learning_take_profit", str(rule["reason_ko"])
+        if rule["action"] == "cut_loss" and current_profit <= threshold:
+            return "learning_cut_loss", str(rule["reason_ko"])
+    return None, None
 
 
 def _is_bad_stats(row: sqlite3.Row, min_samples: int) -> bool:
@@ -456,3 +597,80 @@ def record_event(event_type: str, message: str, data: dict[str, Any] | None = No
             (utcnow(), event_type, message, dumps(data)),
         )
         conn.commit()
+
+
+def upsert_learning_rule(
+    *,
+    source: str,
+    rule_type: str,
+    scope: str,
+    pair: str,
+    side: str,
+    enter_tag: str,
+    condition: dict[str, Any],
+    action: str,
+    confidence: float,
+    sample_count: int,
+    winrate: float,
+    avg_profit: float,
+    enabled: bool,
+    reason_ko: str,
+) -> None:
+    condition_json = dumps(condition)
+    now = utcnow()
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO learning_rules (
+                created_at, updated_at, source, rule_type, scope, pair, side,
+                enter_tag, condition_json, action, confidence, sample_count,
+                winrate, avg_profit, enabled, reason_ko
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, rule_type, scope, pair, side, enter_tag, condition_json, action)
+            DO UPDATE SET
+                updated_at = excluded.updated_at,
+                confidence = excluded.confidence,
+                sample_count = excluded.sample_count,
+                winrate = excluded.winrate,
+                avg_profit = excluded.avg_profit,
+                enabled = excluded.enabled,
+                reason_ko = excluded.reason_ko
+            """,
+            (
+                now,
+                now,
+                source,
+                rule_type,
+                scope,
+                pair,
+                side,
+                normalize_tag(enter_tag),
+                condition_json,
+                action,
+                confidence,
+                sample_count,
+                winrate,
+                avg_profit,
+                1 if enabled else 0,
+                reason_ko,
+            ),
+        )
+        conn.commit()
+
+
+def latest_review_summary(kind: str = "daily") -> str:
+    if kind == "monthly":
+        table = "monthly_reviews"
+        order_col = "month_start"
+    elif kind == "weekly":
+        table = "weekly_reviews"
+        order_col = "week_start"
+    else:
+        table = "daily_reviews"
+        order_col = "review_date"
+    with connect() as conn:
+        row = conn.execute(
+            f"SELECT summary_ko FROM {table} ORDER BY {order_col} DESC LIMIT 1"
+        ).fetchone()
+        return row["summary_ko"] if row else "아직 저장된 복기 리포트가 없습니다."

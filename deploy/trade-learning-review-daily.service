@@ -1,0 +1,9 @@
+[Unit]
+Description=trade-1 daily learning review
+After=trade-freqtrade.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecCondition=/bin/sh -c "/usr/bin/docker inspect -f '{{.State.Running}}' trade-freqtrade 2>/dev/null | grep -Fxq true"
+ExecStart=/usr/bin/docker exec --user 1000:1000 trade-freqtrade python /freqtrade/user_data/strategies/review_learning.py --period daily

@@ -39,10 +39,17 @@ install -d -m 750 /etc/caddy /etc/caddy/Caddyfile.d
 install -m 644 "$SCRIPT_DIR/freqtrade.service" /etc/systemd/system/trade-freqtrade.service
 install -m 644 "$SCRIPT_DIR/trade-learning-sync.service" /etc/systemd/system/trade-learning-sync.service
 install -m 644 "$SCRIPT_DIR/trade-learning-sync.timer" /etc/systemd/system/trade-learning-sync.timer
+install -m 644 "$SCRIPT_DIR/trade-learning-review-daily.service" /etc/systemd/system/trade-learning-review-daily.service
+install -m 644 "$SCRIPT_DIR/trade-learning-review-daily.timer" /etc/systemd/system/trade-learning-review-daily.timer
+install -m 644 "$SCRIPT_DIR/trade-learning-review-weekly.service" /etc/systemd/system/trade-learning-review-weekly.service
+install -m 644 "$SCRIPT_DIR/trade-learning-review-weekly.timer" /etc/systemd/system/trade-learning-review-weekly.timer
+install -m 644 "$SCRIPT_DIR/trade-learning-review-monthly.service" /etc/systemd/system/trade-learning-review-monthly.service
+install -m 644 "$SCRIPT_DIR/trade-learning-review-monthly.timer" /etc/systemd/system/trade-learning-review-monthly.timer
 install -m 644 "$SCRIPT_DIR/AggressiveSafeStrategy.py" /opt/trade-1/user_data/strategies/AggressiveSafeStrategy.py
 install -m 644 "$SCRIPT_DIR/community_strategies/"*.py /opt/trade-1/user_data/strategies/
 install -m 644 "$SCRIPT_DIR/trade_learning.py" /opt/trade-1/user_data/strategies/trade_learning.py
 install -m 644 "$SCRIPT_DIR/sync_learning.py" /opt/trade-1/user_data/strategies/sync_learning.py
+install -m 644 "$SCRIPT_DIR/review_learning.py" /opt/trade-1/user_data/strategies/review_learning.py
 install -m 644 "$SCRIPT_DIR/telegram_ko/sitecustomize.py" /opt/trade-1/user_data/patches/sitecustomize.py
 install -m 755 "$SCRIPT_DIR/configure-telegram.sh" /usr/local/sbin/trade-1-configure-telegram
 if [[ ! -e /etc/trade-1/telegram.json ]]; then
@@ -86,6 +93,9 @@ systemctl enable --now caddy
 systemctl reload caddy
 systemctl enable --now trade-backup.timer
 systemctl enable --now trade-learning-sync.timer
+systemctl enable --now trade-learning-review-daily.timer
+systemctl enable --now trade-learning-review-weekly.timer
+systemctl enable --now trade-learning-review-monthly.timer
 
 if [[ $START_FREQTRADE -eq 1 ]]; then
   systemctl enable --now trade-freqtrade

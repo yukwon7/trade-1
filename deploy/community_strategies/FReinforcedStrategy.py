@@ -16,8 +16,14 @@ from freqtrade.strategy import DecimalParameter, IStrategy, IntParameter
 from technical.util import resample_to_interval, resampled_merge
 
 try:
-    from trade_learning import infer_source, record_entry_decision, should_block_signal
+    from trade_learning import (
+        get_exit_decision,
+        infer_source,
+        record_entry_decision,
+        should_block_signal,
+    )
 except Exception:
+    get_exit_decision = None
     infer_source = None
     record_entry_decision = None
     should_block_signal = None
@@ -240,6 +246,25 @@ class FReinforced20Strategy(FReinforcedStrategy):
                 pass
 
         return not blocked
+
+    def custom_exit(
+        self,
+        pair: str,
+        trade: Trade,
+        current_time: datetime,
+        current_rate: float,
+        current_profit: float,
+        **kwargs,
+    ):
+        if not get_exit_decision:
+            return None
+        try:
+            side = "short" if trade.is_short else "long"
+            enter_tag = getattr(trade, "enter_tag", None)
+            exit_tag, _reason = get_exit_decision(pair, side, enter_tag, current_profit)
+            return exit_tag
+        except Exception:
+            return None
 
     def leverage(
         self,

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run trade-1 weekly learning review
+
+[Timer]
+OnCalendar=Mon *-*-* 00:20:00 UTC
+AccuracySec=10min
+Persistent=true
+Unit=trade-learning-review-weekly.service
+
+[Install]
+WantedBy=timers.target

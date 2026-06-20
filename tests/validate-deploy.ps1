@@ -17,8 +17,15 @@ $requiredFiles = @(
   'deploy\activate-frequent-strategy.sh',
   'deploy\trade_learning.py',
   'deploy\sync_learning.py',
+  'deploy\review_learning.py',
   'deploy\trade-learning-sync.service',
   'deploy\trade-learning-sync.timer',
+  'deploy\trade-learning-review-daily.service',
+  'deploy\trade-learning-review-daily.timer',
+  'deploy\trade-learning-review-weekly.service',
+  'deploy\trade-learning-review-weekly.timer',
+  'deploy\trade-learning-review-monthly.service',
+  'deploy\trade-learning-review-monthly.timer',
   'deploy\telegram.disabled.json',
   'deploy\configure-telegram.sh',
   'deploy\telegram_ko\sitecustomize.py',
@@ -46,17 +53,21 @@ Assert-Contains 'deploy\freqtrade.service' @('freqtradeorg/freqtrade:stable', '-
 Assert-Contains 'deploy\freqtrade.service' @('/etc/trade-1/telegram.json:/run/secrets/telegram.json:ro', '--config /run/secrets/telegram.json')
 Assert-Contains 'deploy\freqtrade.service' @('PYTHONPATH=/freqtrade/user_data/patches:/freqtrade/user_data/strategies')
 Assert-Contains 'deploy\configure-telegram.sh' @('allow_custom_messages', 'notification_settings', 'systemctl restart trade-freqtrade', '--disable')
-Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko', 'CommandHandler(["stake", "stake_amount"]', 'def _stake_amount', 'dry-run에서만 허용', 'TELEGRAM_STAKE_MAX', 'Telegram._startup_telegram = _startup_telegram_with_stake')
+Assert-Contains 'deploy\telegram_ko\sitecustomize.py' @('_translate_ko', '모의투자가 활성화되어 있습니다', 'Telegram._send_msg = _send_msg_ko', 'CommandHandler(["stake", "stake_amount"]', 'def _stake_amount', 'dry-run에서만 허용', 'TELEGRAM_STAKE_MAX', 'def _learn_review', 'learn_weekly', 'learn_monthly', 'latest_review_summary', 'Telegram._startup_telegram = _startup_telegram_with_stake')
 Assert-Contains 'deploy\config.json.template' @('"dry_run": true', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', '"stake_amount": 10', '"timeframe": "5m"', '"force_entry_enable": true', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT', '__API_PASSWORD__')
 Assert-Contains 'deploy\backtest.config.json' @('"dry_run": true', '"trading_mode": "futures"', '"margin_mode": "isolated"', '"max_open_trades": 3', 'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT')
 Assert-Contains 'deploy\AggressiveSafeStrategy.py' @('can_short = True', 'timeframe = "4h"', 'stoploss = -0.08', 'return min(20.0, max_leverage)', 'position_adjustment_enable = False')
 Assert-Contains 'deploy\community_strategies\FAdxSmaStrategy.py' @('class FAdxSmaStrategy', 'can_short = True', 'timeframe = "1h"', 'GPL-3.0')
-Assert-Contains 'deploy\community_strategies\FReinforcedStrategy.py' @('class FReinforcedStrategy', 'class FReinforced20Strategy', 'entry_adx_threshold = 20.0', 'stoploss = -0.08', 'def protections', '"method": "CooldownPeriod"', '"stop_duration_candles": 12', 'confirm_trade_exit', 'confirm_trade_entry', 'record_entry_decision', 'should_block_signal', 'exit_reason == "exit_signal"', '-0.05 < current_profit < 0', 'return min(20.0, max_leverage)', 'startup_candle_count: int = 720', 'can_short = True', 'timeframe = "5m"', 'space="buy"', 'GPL-3.0')
-Assert-Contains 'deploy\trade_learning.py' @('CREATE TABLE IF NOT EXISTS entry_decisions', 'CREATE TABLE IF NOT EXISTS trade_results', 'CREATE TABLE IF NOT EXISTS signal_stats', 'MIN_PAIR_SAMPLES', 'should_block_signal', 'upsert_trade_result', 'rebuild_signal_stats')
+Assert-Contains 'deploy\community_strategies\FReinforcedStrategy.py' @('class FReinforcedStrategy', 'class FReinforced20Strategy', 'entry_adx_threshold = 20.0', 'stoploss = -0.08', 'def protections', '"method": "CooldownPeriod"', '"stop_duration_candles": 12', 'confirm_trade_exit', 'confirm_trade_entry', 'custom_exit', 'record_entry_decision', 'should_block_signal', 'get_exit_decision', 'exit_reason == "exit_signal"', '-0.05 < current_profit < 0', 'return min(20.0, max_leverage)', 'startup_candle_count: int = 720', 'can_short = True', 'timeframe = "5m"', 'space="buy"', 'GPL-3.0')
+Assert-Contains 'deploy\trade_learning.py' @('CREATE TABLE IF NOT EXISTS entry_decisions', 'CREATE TABLE IF NOT EXISTS trade_results', 'CREATE TABLE IF NOT EXISTS signal_stats', 'CREATE TABLE IF NOT EXISTS daily_reviews', 'CREATE TABLE IF NOT EXISTS weekly_reviews', 'CREATE TABLE IF NOT EXISTS monthly_reviews', 'CREATE TABLE IF NOT EXISTS learning_rules', 'MIN_PAIR_SAMPLES', 'should_block_signal', 'get_exit_decision', 'upsert_trade_result', 'rebuild_signal_stats', 'latest_review_summary')
 Assert-Contains 'deploy\sync_learning.py' @('FtRestClient', 'client.trades(limit=1000)', 'client.status()', 'rebuild_signal_stats')
+Assert-Contains 'deploy\review_learning.py' @('run_daily', 'run_weekly', 'run_monthly', 'pair_candles', 'daily_reviews', 'weekly_reviews', 'monthly_reviews', 'build_rule_candidates', 'take_profit', 'cut_loss')
 Assert-Contains 'deploy\trade-learning-sync.service' @('docker exec --user 1000:1000 trade-freqtrade', 'sync_learning.py')
 Assert-Contains 'deploy\trade-learning-sync.timer' @('OnUnitActiveSec=1min', 'Persistent=true')
-Assert-Contains 'deploy\install-primary.sh' @('TRADE_API_PASSWORD_FILE', 'docker pull "$FREQTRADE_IMAGE"', 'show-config', 'list-strategies', 'systemctl reload caddy', 'trade-learning-sync.timer', 'trade_learning.py', 'sync_learning.py')
+Assert-Contains 'deploy\trade-learning-review-daily.timer' @('OnCalendar=*-*-* 00:10:00 UTC', 'Persistent=true')
+Assert-Contains 'deploy\trade-learning-review-weekly.timer' @('OnCalendar=Mon *-*-* 00:20:00 UTC', 'Persistent=true')
+Assert-Contains 'deploy\trade-learning-review-monthly.timer' @('OnCalendar=*-*-01 00:30:00 UTC', 'Persistent=true')
+Assert-Contains 'deploy\install-primary.sh' @('TRADE_API_PASSWORD_FILE', 'docker pull "$FREQTRADE_IMAGE"', 'show-config', 'list-strategies', 'systemctl reload caddy', 'trade-learning-sync.timer', 'trade-learning-review-daily.timer', 'trade-learning-review-weekly.timer', 'trade-learning-review-monthly.timer', 'trade_learning.py', 'sync_learning.py', 'review_learning.py')
 Assert-Contains 'deploy\install-standby.sh' @('trade-freqtrade', 'watch.netrc', 'docker pull "$FREQTRADE_IMAGE"')
 Assert-Contains 'deploy\preflight.sh' @('At least 7 GB swap is required', 'primary', 'standby')
 Assert-Contains 'deploy\backup-to-secondary.sh' @('trade-1-freqtrade-backup.tar.gz', 'user_data', 'rsync -az')
