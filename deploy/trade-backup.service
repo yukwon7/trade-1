@@ -1,0 +1,20 @@
+[Unit]
+Description=Back up trade-1 Freqtrade data to standby server
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/trade-1/backup.env
+ExecStart=/usr/local/sbin/trade-1-backup
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+ProtectSystem=strict
+ReadWritePaths=/var/lib/trade-1-backup
+ProtectHome=false
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+RestrictSUIDSGID=true

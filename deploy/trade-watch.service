@@ -1,0 +1,15 @@
+[Unit]
+Description=Check trade-1 FreqUI health
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/trade-1/watch.env
+ExecStart=/usr/local/sbin/trade-1-watch
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/trade-1-watch
+UMask=0077
