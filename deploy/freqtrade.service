@@ -11,7 +11,7 @@ RestartSec=20
 Environment=FREQTRADE_IMAGE=freqtradeorg/freqtrade:stable
 EnvironmentFile=-/etc/trade-1/freqtrade.env
 ExecStartPre=-/usr/bin/docker rm -f trade-freqtrade
-ExecStart=/usr/bin/docker run --rm --name trade-freqtrade --memory=800m --memory-swap=4g --cpus=0.90 --pids-limit=256 --security-opt=no-new-privileges:true --cap-drop=ALL -e PYTHONPATH=/freqtrade/user_data/patches:/freqtrade/user_data/strategies -p 127.0.0.1:8080:8080 -v /opt/trade-1/user_data:/freqtrade/user_data -v /etc/trade-1/telegram.json:/run/secrets/telegram.json:ro ${FREQTRADE_IMAGE} trade --config /freqtrade/user_data/config.json --config /run/secrets/telegram.json --strategy ModelMacdMomentumActive30
+ExecStart=/usr/bin/docker run --rm --name trade-freqtrade --memory=800m --memory-swap=4g --cpus=0.90 --pids-limit=256 --security-opt=no-new-privileges:true --cap-drop=ALL -e PYTHONPATH=/freqtrade/user_data/patches:/freqtrade/user_data/strategies -p 127.0.0.1:8080:8080 -v /opt/trade-1/user_data:/freqtrade/user_data -v /etc/trade-1/telegram.json:/run/secrets/telegram.json:ro ${FREQTRADE_IMAGE} trade --config /freqtrade/user_data/config.json --config /run/secrets/telegram.json --strategy ModelMacdMomentumResponsive24
 ExecStop=/usr/bin/docker stop -t 60 trade-freqtrade
 TimeoutStartSec=240
 TimeoutStopSec=90

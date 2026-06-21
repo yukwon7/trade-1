@@ -352,6 +352,37 @@ class ModelMacdMomentumActive30(ModelMacdMomentumActive):
     entry_adx_threshold = 30
 
 
+class ModelMacdMomentumResponsive24(ModelMacdMomentumActive):
+    """Enter an established 5m impulse instead of requiring the crossover candle."""
+
+    entry_adx_threshold = 24
+
+    @property
+    def protections(self):
+        return [{"method": "CooldownPeriod", "stop_duration_candles": 6}]
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            (dataframe["macd"] > dataframe["macdsignal"])
+            & (dataframe["macdhist"] > 0)
+            & (dataframe["close"] > dataframe["ema200"])
+            & (dataframe["rsi"].between(48, 72))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_long", "enter_tag"],
+        ] = (1, "macd_responsive_long")
+        dataframe.loc[
+            (dataframe["macd"] < dataframe["macdsignal"])
+            & (dataframe["macdhist"] < 0)
+            & (dataframe["close"] < dataframe["ema200"])
+            & (dataframe["rsi"].between(28, 52))
+            & (dataframe["adx"] > self.entry_adx_threshold)
+            & (dataframe["volume"] > 0),
+            ["enter_short", "enter_tag"],
+        ] = (1, "macd_responsive_short")
+        return dataframe
+
+
 class ModelMacdMomentumFast(_ResearchBase):
     """Highest-frequency 5m MACD candidate with broad momentum guardrails."""
 

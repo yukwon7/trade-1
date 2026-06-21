@@ -35,3 +35,8 @@ Decision:
 Use the 15m EMA150/ADX15 model in dry-run. It increased trade count by
 about 61% over the existing model without accepting the sustained losses
 seen in the 5m candidates.
+
+Later user-requested frequency test (2026-05-19 to 2026-06-19):
+- ModelMacdMomentumActive24: 231 trades, -3.03%
+- ModelMacdMomentumResponsive24: 908 trades, -3.05%, 8.23% max drawdown
+- Responsive24 was deployed in dry-run to collect substantially more learning data.

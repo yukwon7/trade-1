@@ -14,7 +14,7 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 ## 모의 전략
 
-- 활성 전략: `ModelMacdMomentumActive30` (5분봉 진입, 격리 5배, 손절 -3%, 단타 ROI)
+- 활성 전략: `ModelMacdMomentumResponsive24` (5분봉 반응형 진입, 격리 5배, 손절 -3%, 단타 ROI)
 - 페어: BTC·ETH·SOL·BNB·XRP·DOGE·ADA·LINK USDT 무기한 선물
 - 동시 포지션: 최대 5개
 - 롱/숏 레버리지: 거래소 허용 범위 내 최대 5배
@@ -62,9 +62,9 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 - `FAdxSmaStrategy`: 1시간봉, 롱·숏, 32회, 총수익률 -0.50%
 - `FReinforcedStrategy`: 5분봉+1시간 추세 필터, 롱·숏, 총수익률 -1.86%; Freqtrade 2026.5.1 호환성 수정 포함
-- `ModelMacdMomentumActive30`: 5분봉 MACD 교차를 EMA200·RSI·ADX 30으로 확인하는 5배 Long/Short 단타 전략
+- `ModelMacdMomentumResponsive24`: 교차 순간뿐 아니라 지속 중인 5분봉 MACD 모멘텀을 EMA200·RSI·ADX 24로 확인하는 5배 Long/Short 단타 전략
 
-사용자 요청에 따라 현재 활성 전략은 5분봉 진입형 `ModelMacdMomentumActive30`이다. 2026-03-18~2026-06-19 검증에서 300회, -4.56%, 최대 낙폭 6.24%였으므로 dry-run 전용이며 실거래 전환을 금지한다. 백테스트는 미래 수익을 보장하지 않는다.
+사용자 요청에 따라 현재 활성 전략은 5분봉 반응형 `ModelMacdMomentumResponsive24`이다. ADX 기준을 24로 낮추고 MACD 교차 직후의 지속 모멘텀에서도 진입하며, 같은 페어는 청산 후 30분 동안 재진입하지 않는다. 거래 빈도 관찰용 dry-run 전략이므로 실거래 전환을 금지한다. 백테스트는 미래 수익을 보장하지 않는다.
 - 최대 낙폭: 4.03%
 - Profit factor: 0.92
 
