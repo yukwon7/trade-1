@@ -228,6 +228,8 @@ def infer_source(enter_tag: str | None) -> str:
         "macd_active_short",
         "macd_responsive_long",
         "macd_responsive_short",
+        "rsi50_macd_zero_long",
+        "rsi50_macd_zero_short",
     }
     return "auto" if tag in automatic_tags else "manual"
 
@@ -260,6 +262,10 @@ def entry_reason(pair: str, side: str, enter_tag: str | None) -> str:
         return f"{pair} long: 5분봉 MACD 상승 모멘텀과 EMA200·RSI·ADX 24 조건이 지속돼 진입"
     if tag == "macd_responsive_short":
         return f"{pair} short: 5분봉 MACD 하락 모멘텀과 EMA200·RSI·ADX 24 조건이 지속돼 진입"
+    if tag == "rsi50_macd_zero_long":
+        return f"{pair} long: RSI가 50 위이고 MACD 히스토그램이 음수에서 양수로 전환돼 진입"
+    if tag == "rsi50_macd_zero_short":
+        return f"{pair} short: RSI가 50 위이고 MACD 히스토그램이 양수에서 음수로 전환돼 진입"
     if tag.startswith(("force", "manual", "fill", "refill", "initial")):
         return f"{pair} {side}: 사용자가 수동/강제 진입한 포지션"
     return f"{pair} {side}: enter_tag={tag} 신호로 진입"

@@ -40,3 +40,9 @@ Later user-requested frequency test (2026-05-19 to 2026-06-19):
 - ModelMacdMomentumActive24: 231 trades, -3.03%
 - ModelMacdMomentumResponsive24: 908 trades, -3.05%, 8.23% max drawdown
 - Responsive24 was deployed in dry-run to collect substantially more learning data.
+
+User-defined RSI50/MACD-zero test (2026-05-19 to 2026-06-19):
+- ModelRsi50MacdZero: 990 trades, -26.44%, 27.00% max drawdown
+- Long: RSI > 50 and MACD histogram negative-to-positive
+- Short: RSI > 50 and MACD histogram positive-to-negative
+- Deployed only in dry-run despite the poor historical result.

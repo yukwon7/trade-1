@@ -95,7 +95,7 @@ docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data "$FREQTRADE_IMAGE
 docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data -v /etc/trade-1/telegram.json:/run/secrets/telegram.json:ro "$FREQTRADE_IMAGE" \
   show-config --config /freqtrade/user_data/config.json --config /run/secrets/telegram.json >/dev/null
 docker run --rm -v /opt/trade-1/user_data:/freqtrade/user_data "$FREQTRADE_IMAGE" \
-  list-strategies | grep -Fq ModelMacdMomentumResponsive24
+  list-strategies | grep -Fq ModelRsi50MacdZero
 caddy validate --config /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now caddy

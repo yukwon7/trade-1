@@ -383,6 +383,56 @@ class ModelMacdMomentumResponsive24(ModelMacdMomentumActive):
         return dataframe
 
 
+class ModelRsi50MacdZero(_ResearchBase):
+    """5m entries using RSI above 50 and MACD histogram zero transitions."""
+
+    timeframe = "5m"
+
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        macd = ta.MACD(dataframe, fastperiod=12, slowperiod=26, signalperiod=9)
+        dataframe["macd"] = macd["macd"]
+        dataframe["macdsignal"] = macd["macdsignal"]
+        dataframe["macdhist"] = macd["macdhist"]
+        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        return dataframe
+
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        histogram_turns_positive = (
+            (dataframe["macdhist"] > 0)
+            & (dataframe["macdhist"].shift(1) <= 0)
+        )
+        histogram_turns_negative = (
+            (dataframe["macdhist"] < 0)
+            & (dataframe["macdhist"].shift(1) >= 0)
+        )
+        dataframe.loc[
+            (dataframe["rsi"] > 50)
+            & histogram_turns_positive
+            & (dataframe["volume"] > 0),
+            ["enter_long", "enter_tag"],
+        ] = (1, "rsi50_macd_zero_long")
+        dataframe.loc[
+            (dataframe["rsi"] > 50)
+            & histogram_turns_negative
+            & (dataframe["volume"] > 0),
+            ["enter_short", "enter_tag"],
+        ] = (1, "rsi50_macd_zero_short")
+        return dataframe
+
+    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[
+            (dataframe["macdhist"] < 0)
+            & (dataframe["macdhist"].shift(1) >= 0),
+            ["exit_long", "exit_tag"],
+        ] = (1, "macd_zero_exit")
+        dataframe.loc[
+            (dataframe["macdhist"] > 0)
+            & (dataframe["macdhist"].shift(1) <= 0),
+            ["exit_short", "exit_tag"],
+        ] = (1, "macd_zero_exit")
+        return dataframe
+
+
 class ModelMacdMomentumFast(_ResearchBase):
     """Highest-frequency 5m MACD candidate with broad momentum guardrails."""
 
