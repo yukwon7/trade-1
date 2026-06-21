@@ -44,5 +44,7 @@ Later user-requested frequency test (2026-05-19 to 2026-06-19):
 User-defined RSI50/MACD-zero test (2026-05-19 to 2026-06-19):
 - ModelRsi50MacdZero: 990 trades, -26.44%, 27.00% max drawdown
 - Long: RSI > 50 and MACD histogram negative-to-positive
-- Short: RSI > 50 and MACD histogram positive-to-negative
+- Short in this initial test: RSI > 50 and MACD histogram positive-to-negative
 - Deployed only in dry-run despite the poor historical result.
+- The short RSI condition was subsequently corrected to RSI < 50 by user request.
+- Corrected test: 1,316 trades, -36.05%, 36.45% max drawdown.

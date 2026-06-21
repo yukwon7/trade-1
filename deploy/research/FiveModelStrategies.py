@@ -384,7 +384,7 @@ class ModelMacdMomentumResponsive24(ModelMacdMomentumActive):
 
 
 class ModelRsi50MacdZero(_ResearchBase):
-    """5m entries using RSI above 50 and MACD histogram zero transitions."""
+    """5m entries using RSI 50 direction and MACD histogram zero transitions."""
 
     timeframe = "5m"
 
@@ -412,7 +412,7 @@ class ModelRsi50MacdZero(_ResearchBase):
             ["enter_long", "enter_tag"],
         ] = (1, "rsi50_macd_zero_long")
         dataframe.loc[
-            (dataframe["rsi"] > 50)
+            (dataframe["rsi"] < 50)
             & histogram_turns_negative
             & (dataframe["volume"] > 0),
             ["enter_short", "enter_tag"],

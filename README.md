@@ -62,9 +62,9 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 
 - `FAdxSmaStrategy`: 1시간봉, 롱·숏, 32회, 총수익률 -0.50%
 - `FReinforcedStrategy`: 5분봉+1시간 추세 필터, 롱·숏, 총수익률 -1.86%; Freqtrade 2026.5.1 호환성 수정 포함
-- `ModelRsi50MacdZero`: RSI가 50 위일 때 MACD 히스토그램 음→양은 Long, 양→음은 Short로 진입하는 5배 단타 전략
+- `ModelRsi50MacdZero`: RSI가 50 위이고 MACD 히스토그램 음→양이면 Long, RSI가 50 아래이고 양→음이면 Short로 진입하는 5배 단타 전략
 
-사용자 요청에 따라 현재 활성 전략은 `ModelRsi50MacdZero`이다. 롱과 숏 모두 RSI 50 초과를 요구하며, MACD 히스토그램의 0선 방향 전환으로 진입 방향을 정한다. 거래 빈도 관찰용 dry-run 전략이므로 실거래 전환을 금지한다. 백테스트는 미래 수익을 보장하지 않는다.
+사용자 요청에 따라 현재 활성 전략은 `ModelRsi50MacdZero`이다. 롱은 RSI 50 초과와 MACD 히스토그램 음→양, 숏은 RSI 50 미만과 MACD 히스토그램 양→음을 요구한다. 거래 빈도 관찰용 dry-run 전략이므로 실거래 전환을 금지한다. 백테스트는 미래 수익을 보장하지 않는다.
 - 최대 낙폭: 4.03%
 - Profit factor: 0.92
 
