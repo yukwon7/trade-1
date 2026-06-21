@@ -10,7 +10,7 @@ Binance USDT-M Futures 전용 비동기 paper-trading 및 분석 플랫폼이다
 - 1H 추세 → 15M 방향 → 5M 돌파 순서로 신호를 평가한다.
 - 점수, 레버리지, 리스크 기반 수량을 계산해 가상 포지션을 관리한다.
 - 거래·신호·지표를 `data/trades.db`에 SQLite WAL로 기록한다.
-- Telegram으로 진입, 추가매수, 부분청산, 전체청산을 알린다.
+- Telegram으로 진입, 추가매수, 부분청산, 전체청산을 알리고 운영 명령을 처리한다.
 - 매시간 SQLite online backup을 만든 뒤 Server 2로 `rsync`한다.
 
 ### Server 2 — `SERVER_ROLE=analysis`
@@ -162,5 +162,16 @@ scripts/run_analysis.sh
 sudo systemctl status trade1-paper.service
 sudo journalctl -u trade1-paper.service -f
 ```
+
+## Telegram 명령
+
+- 상태: `/status`, `/positions`, `/balance`, `/profit`, `/count`
+- 성과: `/daily`, `/weekly`, `/monthly`, `/trades`, `/performance`
+- 복기: `/learn`, `/learn_weekly`, `/learn_monthly`
+- 설정 확인: `/symbols`, `/config`, `/stake`
+- 신규 진입 중지: `/pause` 또는 `/stop`
+- 신규 진입 재개: `/resume` 또는 `/start`
+
+중지 상태는 `config/paper_state.json`에 저장되어 재시작 후에도 유지된다. 중지 중에도 기존 포지션의 손절·익절은 계속 실행된다. Telegram 명령은 `.env`의 `TELEGRAM_CHAT_ID`와 일치하는 채팅에서만 허용한다.
 
 이 프로젝트는 paper trading 전용이다. 백테스트·forward test가 충분한 수익성과 안정성을 입증하기 전에는 실제 주문 기능을 추가하지 않는다.

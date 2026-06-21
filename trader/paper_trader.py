@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from config import Settings
@@ -20,20 +21,46 @@ class PaperTrader:
         self.circuit = CircuitBreaker(store)
         self.positions: dict[str, PositionState] = {}
         self.balance = settings.initial_balance
+        self.entry_paused = False
+        self._state_path = settings.config_dir / "paper_state.json"
         self._lock = asyncio.Lock()
         self._notified_blocks: set[tuple[str, str]] = set()
 
     async def initialize(self) -> None:
+        self._load_operator_state()
         self.positions = await self.store.open_positions()
         self.balance = self.settings.initial_balance + await self.store.account_pnl()
-        logger.info("paper account restored: balance=%.2f open_positions=%d", self.balance, len(self.positions))
+        logger.info(
+            "paper account restored: balance=%.2f open_positions=%d entry_paused=%s",
+            self.balance,
+            len(self.positions),
+            self.entry_paused,
+        )
 
     def update_settings(self, settings: Settings) -> None:
         self.settings = settings
 
+    async def set_entry_paused(self, paused: bool) -> None:
+        async with self._lock:
+            self.entry_paused = bool(paused)
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._state_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"entry_paused": self.entry_paused}), encoding="utf-8")
+            temporary.replace(self._state_path)
+            logger.info("operator entry pause changed: %s", self.entry_paused)
+
+    def _load_operator_state(self) -> None:
+        if not self._state_path.exists():
+            return
+        try:
+            data = json.loads(self._state_path.read_text(encoding="utf-8"))
+            self.entry_paused = bool(data.get("entry_paused", False))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("invalid operator state %s: %s", self._state_path, exc)
+
     async def open(self, signal: Signal) -> PositionState | None:
         async with self._lock:
-            if signal.symbol in self.positions or len(self.positions) >= self.settings.max_open_positions:
+            if self.entry_paused or signal.symbol in self.positions or len(self.positions) >= self.settings.max_open_positions:
                 return None
             allowed, reason, resume_at = await self.circuit.allow_entry(signal.symbol, self.balance)
             if not allowed:

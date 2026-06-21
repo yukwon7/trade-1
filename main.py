@@ -13,7 +13,7 @@ import aiohttp
 from config import RuntimeConfig, Settings
 from exchange import BinanceFuturesClient
 from models import Candle
-from notify import TelegramNotifier
+from notify import TelegramCommandHandler, TelegramNotifier
 from risk import leverage_for_score
 from storage import SQLiteManager, TradeStore
 from strategy import SignalEngine
@@ -56,12 +56,22 @@ class PaperApplication:
             notifier = TelegramNotifier(session, self.settings.telegram_bot_token, self.settings.telegram_chat_id)
             trader = PaperTrader(self.settings, store, notifier)
             await trader.initialize()
+            commands = TelegramCommandHandler(
+                session,
+                self.settings.telegram_bot_token,
+                self.settings.telegram_chat_id,
+                notifier,
+                trader,
+                store,
+                self.runtime,
+            )
             cache = CandleCache(client, self.settings.candle_limit)
             engine = SignalEngine()
             await notifier.startup("paper", len(self.settings.symbols))
             tasks = [
                 asyncio.create_task(self._signal_loop(client, cache, engine, trader, store, notifier), name="signal-loop"),
                 asyncio.create_task(self._position_loop(client, trader, notifier), name="position-loop"),
+                asyncio.create_task(commands.run(self.stop_event), name="telegram-command-loop"),
             ]
             await self.stop_event.wait()
             for task in tasks:

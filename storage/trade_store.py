@@ -135,6 +135,24 @@ class TradeStore:
         db = await self.manager.connect()
         return await (await db.execute("SELECT * FROM trades WHERE exit_time IS NOT NULL ORDER BY id DESC LIMIT ?", (limit,))).fetchall()
 
+    async def recent_trades(self, limit: int = 10):
+        db = await self.manager.connect()
+        return await (
+            await db.execute(
+                "SELECT * FROM trades WHERE exit_time IS NOT NULL ORDER BY id DESC LIMIT ?",
+                (max(1, min(100, int(limit))),),
+            )
+        ).fetchall()
+
+    async def trades_since(self, since: str):
+        db = await self.manager.connect()
+        return await (
+            await db.execute(
+                "SELECT * FROM trades WHERE exit_time IS NOT NULL AND exit_time>=? ORDER BY id DESC",
+                (since,),
+            )
+        ).fetchall()
+
     async def log_optimizer(self, metrics: dict[str, Any], adjustments: dict[str, Any]) -> None:
         db = await self.manager.connect()
         now = utc_now_iso()

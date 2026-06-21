@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 data/
 logs/
+config/paper_state.json
 backup_*/
 .pytest_cache/
 .coverage
