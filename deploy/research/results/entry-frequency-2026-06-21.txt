@@ -57,5 +57,10 @@ Liquidity and tiered-risk review (2026-06-21):
   - Stop 3%: 1,316 trades, -43.32%, 45.83% max drawdown
   - Stop 4%: 1,316 trades, -44.52%, 45.83% max drawdown
   - Stop 5%: 1,316 trades, -45.06%, 46.38% max drawdown
+- Fixed target tests with 3% stop:
+  - Take profit 5%: 1,316 trades, -40.95%, 43.50% max drawdown
+  - Take profit 6%: 1,316 trades, -43.32%, 45.83% max drawdown
+  - Take profit 7%: 1,316 trades, -41.55%, 44.90% max drawdown
 - Conclusion: do not deploy fixed 6% ROI without user confirmation; it performed
-  worse than the existing trailing/ROI management.
+  worse than the existing trailing/ROI management. The 5% target was the least
+  bad fixed target, but still underperformed the existing management.

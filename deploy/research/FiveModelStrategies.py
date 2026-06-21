@@ -502,6 +502,14 @@ class ModelRsi50MacdTieredStop5(_ModelRsi50MacdTieredRisk):
     stoploss = -0.05
 
 
+class ModelRsi50MacdTieredTp5Stop3(ModelRsi50MacdTieredStop3):
+    minimal_roi = {"0": 0.05}
+
+
+class ModelRsi50MacdTieredTp7Stop3(ModelRsi50MacdTieredStop3):
+    minimal_roi = {"0": 0.07}
+
+
 class ModelMacdMomentumFast(_ResearchBase):
     """Highest-frequency 5m MACD candidate with broad momentum guardrails."""
 
