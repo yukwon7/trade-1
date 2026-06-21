@@ -15,8 +15,8 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 ## 모의 전략
 
 - 활성 전략: `ModelMacdMomentumActive30` (5분봉 진입, 격리 5배, 손절 -3%, 단타 ROI)
-- 페어: `BTC/USDT:USDT`, `ETH/USDT:USDT`, `SOL/USDT:USDT`
-- 동시 포지션: 최대 3개
+- 페어: BTC·ETH·SOL·BNB·XRP·DOGE·ADA·LINK USDT 무기한 선물
+- 동시 포지션: 최대 5개
 - 롱/숏 레버리지: 거래소 허용 범위 내 최대 5배
 - 타임프레임: 5분
 - 방향: Long/Short

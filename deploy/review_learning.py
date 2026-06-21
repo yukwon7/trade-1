@@ -30,7 +30,16 @@ from trade_learning import (
 
 
 CONFIG_PATH = Path("/freqtrade/user_data/config.json")
-DEFAULT_PAIRS = ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+DEFAULT_PAIRS = [
+    "BTC/USDT:USDT",
+    "ETH/USDT:USDT",
+    "SOL/USDT:USDT",
+    "BNB/USDT:USDT",
+    "XRP/USDT:USDT",
+    "DOGE/USDT:USDT",
+    "ADA/USDT:USDT",
+    "LINK/USDT:USDT",
+]
 
 
 def load_client() -> FtRestClient:

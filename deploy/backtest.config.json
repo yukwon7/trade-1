@@ -3,7 +3,7 @@
   "dry_run": true,
   "trading_mode": "futures",
   "margin_mode": "isolated",
-  "max_open_trades": 3,
+  "max_open_trades": 5,
   "stake_currency": "USDT",
   "stake_amount": 100,
   "tradable_balance_ratio": 0.99,
@@ -14,7 +14,16 @@
     "secret": "",
     "ccxt_config": {"enableRateLimit": true},
     "ccxt_async_config": {"enableRateLimit": true},
-    "pair_whitelist": ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"],
+    "pair_whitelist": [
+      "BTC/USDT:USDT",
+      "ETH/USDT:USDT",
+      "SOL/USDT:USDT",
+      "BNB/USDT:USDT",
+      "XRP/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "ADA/USDT:USDT",
+      "LINK/USDT:USDT"
+    ],
     "pair_blacklist": []
   },
   "pairlists": [{"method": "StaticPairList"}],
