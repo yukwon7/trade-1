@@ -387,6 +387,34 @@ class ModelRsi50MacdZero(_ResearchBase):
     """5m entries using RSI 50 direction and MACD histogram zero transitions."""
 
     timeframe = "5m"
+    low_volatility_pairs = {
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT",
+        "BNB/USDT:USDT",
+    }
+    high_volatility_pairs = {
+        "HYPE/USDT:USDT",
+        "ZEC/USDT:USDT",
+    }
+
+    def leverage(
+        self,
+        pair: str,
+        current_time: datetime,
+        current_rate: float,
+        proposed_leverage: float,
+        max_leverage: float,
+        entry_tag: str | None,
+        side: str,
+        **kwargs,
+    ) -> float:
+        if pair in self.low_volatility_pairs:
+            target = 8.0
+        elif pair in self.high_volatility_pairs:
+            target = 3.0
+        else:
+            target = 5.0
+        return min(target, max_leverage)
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         macd = ta.MACD(dataframe, fastperiod=12, slowperiod=26, signalperiod=9)
@@ -431,6 +459,47 @@ class ModelRsi50MacdZero(_ResearchBase):
             ["exit_short", "exit_tag"],
         ] = (1, "macd_zero_exit")
         return dataframe
+
+
+class _ModelRsi50MacdTieredRisk(ModelRsi50MacdZero):
+    """Pair-volatility leverage tiers with a 6% leveraged-profit target."""
+
+    minimal_roi = {"0": 0.06}
+    trailing_stop = False
+
+    low_volatility_pairs = ModelRsi50MacdZero.low_volatility_pairs
+    high_volatility_pairs = ModelRsi50MacdZero.high_volatility_pairs
+
+    def leverage(
+        self,
+        pair: str,
+        current_time: datetime,
+        current_rate: float,
+        proposed_leverage: float,
+        max_leverage: float,
+        entry_tag: str | None,
+        side: str,
+        **kwargs,
+    ) -> float:
+        if pair in self.low_volatility_pairs:
+            target = 8.0
+        elif pair in self.high_volatility_pairs:
+            target = 3.0
+        else:
+            target = 5.0
+        return min(target, max_leverage)
+
+
+class ModelRsi50MacdTieredStop3(_ModelRsi50MacdTieredRisk):
+    stoploss = -0.03
+
+
+class ModelRsi50MacdTieredStop4(_ModelRsi50MacdTieredRisk):
+    stoploss = -0.04
+
+
+class ModelRsi50MacdTieredStop5(_ModelRsi50MacdTieredRisk):
+    stoploss = -0.05
 
 
 class ModelMacdMomentumFast(_ResearchBase):

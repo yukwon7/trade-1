@@ -15,9 +15,9 @@ Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장
 ## 모의 전략
 
 - 활성 전략: `ModelRsi50MacdZero` (5분봉 RSI50·MACD 0선 전환 진입, 격리 5배, 손절 -3%, 단타 ROI)
-- 페어: BTC·ETH·SOL·BNB·XRP·DOGE·ADA·LINK USDT 무기한 선물
+- 페어: BTC·ETH·SOL·BNB·XRP·DOGE·ADA·LINK·HYPE·ZEC·SUI·AVAX·1000PEPE USDT 무기한 선물
 - 동시 포지션: 최대 5개
-- 롱/숏 레버리지: 거래소 허용 범위 내 최대 5배
+- 롱/숏 레버리지: 저변동 BTC·ETH·BNB 8배, 고변동 HYPE·ZEC 3배, 나머지 5배
 - 타임프레임: 5분
 - 방향: Long/Short
 - 마진: 격리

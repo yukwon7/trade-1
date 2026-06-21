@@ -48,3 +48,14 @@ User-defined RSI50/MACD-zero test (2026-05-19 to 2026-06-19):
 - Deployed only in dry-run despite the poor historical result.
 - The short RSI condition was subsequently corrected to RSI < 50 by user request.
 - Corrected test: 1,316 trades, -36.05%, 36.45% max drawdown.
+
+Liquidity and tiered-risk review (2026-06-21):
+- Added HYPE, ZEC, SUI, AVAX and 1000PEPE after checking Binance futures
+  30-day median quote volume and median daily range.
+- Leverage tiers deployed: BTC/ETH/BNB 8x, HYPE/ZEC 3x, all others 5x.
+- Fixed 6% ROI tests on BTC/ETH/SOL:
+  - Stop 3%: 1,316 trades, -43.32%, 45.83% max drawdown
+  - Stop 4%: 1,316 trades, -44.52%, 45.83% max drawdown
+  - Stop 5%: 1,316 trades, -45.06%, 46.38% max drawdown
+- Conclusion: do not deploy fixed 6% ROI without user confirmation; it performed
+  worse than the existing trailing/ROI management.
