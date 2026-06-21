@@ -1,128 +1,166 @@
 # trade-1
 
-Oracle Cloud 저사양 서버 2대를 사용하는 Freqtrade 자동매매 운영 프로젝트다. Primary만 거래 엔진을 실행하고 Standby는 감시·백업·수동 장애 전환을 담당한다.
+Binance USDT-M Futures 전용 비동기 paper-trading 및 분석 플랫폼이다. 실제 주문 코드는 없으며 Binance API 키는 읽기 전용으로만 사용한다.
 
-현재 운영 모드는 Binance USDT 무기한 선물 `dry-run`이며 실거래 API 키를 사용하지 않는다.
+## 아키텍처
 
-Freqtrade 거래 DB는 `/opt/trade-1/user_data/tradesv3.dryrun.sqlite`에 저장한다. 컨테이너 재시작 후에도 dry-run 거래내역이 유지되고 백업 대상에 포함된다.
+### Server 1 — `SERVER_ROLE=paper`
 
-## 서버
+- 1H·15M·5M 종가 데이터를 비동기로 수집한다.
+- 1H 추세 → 15M 방향 → 5M 돌파 순서로 신호를 평가한다.
+- 점수, 레버리지, 리스크 기반 수량을 계산해 가상 포지션을 관리한다.
+- 거래·신호·지표를 `data/trades.db`에 SQLite WAL로 기록한다.
+- Telegram으로 진입, 추가매수, 부분청산, 전체청산을 알린다.
+- 매시간 SQLite online backup을 만든 뒤 Server 2로 `rsync`한다.
 
-- Primary: `168.107.21.178`
-- Standby: `140.245.73.101`
-- FreqUI: `https://trade1.blockpixel.duckdns.org`
+### Server 2 — `SERVER_ROLE=analysis`
 
-## 모의 전략
+- 매일 00:00 UTC 최근 거래를 분석하고 `config/config_override.json`을 갱신한다.
+- 4시간마다 USD-M Futures 전체 ticker를 한 번 조회해 거래대금 상위 15개를 선정한다.
+- 분석·백테스트·일일 리포트를 실행한다.
+- 갱신된 override와 symbol 파일을 Server 1에 즉시 `rsync`한다.
 
-- 활성 전략: `ModelRsi50MacdZero` (5분봉 RSI50·MACD 0선 전환 진입, 격리 5배, 손절 -3%, 단타 ROI)
-- 페어: BTC·ETH·SOL·BNB·XRP·DOGE·ADA·LINK·HYPE·ZEC·SUI·AVAX·1000PEPE USDT 무기한 선물
-- 동시 포지션: 최대 5개
-- 롱/숏 레버리지: 저변동 BTC·ETH·BNB 8배, 고변동 HYPE·ZEC 3배, 나머지 5배
-- 타임프레임: 5분
-- 방향: Long/Short
-- 마진: 격리
-- 모의지갑: 1,000 USDT
-- 주문 증거금: 기본 100 USDT (텔레그램 `/stake`로 변경 가능)
-- 손실 청산: -3% 하드 손절
-- 추가매수: 비활성화
-- 학습 DB: 진입 당시 지표와 청산 결과를 SQLite에 저장하고, 충분한 표본에서 성과가 나쁜 자동 신호만 보수적으로 차단
+Server 1은 두 JSON 파일의 mtime을 매 거래 사이클 확인하므로 재시작 없이 반영한다.
 
-이 구성은 수익을 보장하지 않는다. 백테스트와 장기 dry-run 결과 없이 `dry_run`을 끄지 않는다.
+## 전략
 
-## 거래 학습 DB
+필수 방향 조건:
 
-- DB 경로: Primary `/opt/trade-1/user_data/learning/trade_learning.sqlite`
-- `entry_decisions`: 자동/수동 진입 시점의 페어, 방향, 태그, 가격, 레버리지, EMA/SMA/ADX/거래량 조건, 허용/차단 여부를 기록한다.
-- `trade_results`: Freqtrade API의 열린/종료 거래를 1분마다 동기화하고, 손익 여부와 청산 사유를 한국어 설명으로 저장한다.
-- `signal_stats`: 종료된 자동 거래를 페어·방향·진입태그별로 집계한다.
-- `daily_reviews`: 매일 하루 거래와 5분봉 시장 데이터를 복기해 좋았던 자리/안 좋았던 자리를 저장한다.
-- `weekly_reviews`: 매주 일일 복기를 종합해 반복 강점/약점과 진입·익절·손절 규칙 후보를 저장한다.
-- `monthly_reviews`: 매월 주간·일일 복기를 다시 종합해 장기 공통점을 저장한다.
-- `learning_rules`: 복기에서 충분히 반복된 약한 진입, 학습 익절, 학습 손절 후보를 전략이 읽는 규칙으로 저장한다.
+- LONG: 1H EMA20 > EMA50, 15M EMA20 > EMA50, 5M 저항 돌파, RSI > 50, Volume Ratio > 1.2
+- SHORT: 1H EMA20 < EMA50, 15M EMA20 < EMA50, 5M 지지 이탈, RSI < 50, Volume Ratio > 1.2
+- 5M ADX < 20이면 무조건 진입하지 않는다.
 
-자동 신호는 같은 페어·방향·태그에서 종료 표본 20개 이상, 승률 35% 미만, 평균 손익 음수일 때만 차단한다. 전체 페어 기준은 표본 30개 이상일 때 적용한다. 사용자가 텔레그램/FreqUI에서 넣는 수동·강제 진입은 학습 차단 대상이 아니다.
+점수는 Trend 30, Momentum 20, Volume 20, Breakout/Retest 20, ATR 안정성 10으로 총 100점이다. 기본 진입선은 65점이다.
 
-복기 자동 실행:
+레버리지:
 
-- 일일 복기: 매일 00:10 UTC
-- 주간 복기: 매주 월요일 00:20 UTC
-- 월간 복기: 매월 1일 00:30 UTC
+- 85점 이상: 5x
+- 75점 이상: 3x
+- 65점 이상: 2x
+- 65점 미만: 진입 금지
 
-텔레그램에서 `/learn`, `/learn_weekly`, `/learn_monthly`로 최신 복기를 확인할 수 있다. 학습 손절/익절은 충분한 표본이 생긴 규칙만 dry-run 전략에 반영된다.
+포지션당 최대 손실은 잔고의 1%이며, 최초 손절 거리는 진입 시점 5M ATR × 1.5로 고정한다. 최초 진입은 계획 수량의 40%이고, 수익 상태와 추세가 유지될 때만 25%·20%·15%를 추가한다. 1R에서 본전 스탑, 2R에서 50% 부분청산, 나머지는 ATR × 1.0 트레일링 스탑을 사용한다.
 
-## 현재 검증 결과
+PnL에는 양방향 수수료 0.04%와 진입 슬리피지 0.05%가 포함된다.
 
-- 기간: 2025-07-24 ~ 2026-06-18
-- 거래: 48회
-- 총수익률: -1.09%
+## 리스크 제한
 
-## 추가 커뮤니티 전략
+- 일일 손실 3%: 당일 신규 진입 중지
+- 3연속 손실: 1시간 중지
+- 동일 심볼 손절: 30분 쿨다운
+- 동일 심볼 최근 10회 중 7회 손실: 6시간 중지
+- 동시 포지션 기본 5개
+- 모니터링 심볼 하드캡 15개
+- 실주문 엔드포인트 및 주문 권한 없음
 
-출처는 GPL-3.0인 [freqtrade/freqtrade-strategies](https://github.com/freqtrade/freqtrade-strategies) 커밋 `dbd5b0b`이다. 2025-12-21~2026-06-18 Binance 선물 BTC·ETH·SOL, 초기자금 1,000 USDT, 포지션당 100 USDT, 동시 3개 조건의 비교 결과다.
+제한 상태는 `trades.db`에서 재구성되므로 프로세스 재시작으로 초기화되지 않는다.
 
-- `FAdxSmaStrategy`: 1시간봉, 롱·숏, 32회, 총수익률 -0.50%
-- `FReinforcedStrategy`: 5분봉+1시간 추세 필터, 롱·숏, 총수익률 -1.86%; Freqtrade 2026.5.1 호환성 수정 포함
-- `ModelRsi50MacdZero`: RSI가 50 위이고 MACD 히스토그램 음→양이면 Long, RSI가 50 아래이고 양→음이면 Short로 진입하는 5배 단타 전략
+## 폴더
 
-사용자 요청에 따라 현재 활성 전략은 `ModelRsi50MacdZero`이다. 롱은 RSI 50 초과와 MACD 히스토그램 음→양, 숏은 RSI 50 미만과 MACD 히스토그램 양→음을 요구한다. 거래 빈도 관찰용 dry-run 전략이므로 실거래 전환을 금지한다. 백테스트는 미래 수익을 보장하지 않는다.
-- 최대 낙폭: 4.03%
-- Profit factor: 0.92
-
-현재 전략은 수익성 기준을 통과하지 못했으므로 forward 테스트 전용이다. 실거래 전환 금지.
-
-## 배포
-
-1. 양쪽 서버에서 `sudo TRADE_SWAP_GB=8 bash deploy/configure-swap.sh`를 실행해 기존 1GB에 8GB swap을 추가한다.
-2. Primary에서 dashboard hash, API password, 백업 SSH 키를 준비한다.
-3. Primary preflight와 `install-primary.sh`를 실행한다.
-4. Standby preflight와 `install-standby.sh`를 실행한다.
-5. 데이터를 내려받아 백테스트한 뒤 Primary의 `trade-freqtrade`만 시작한다.
-6. Standby의 `trade-freqtrade`는 항상 중지 상태로 유지한다.
-
-## 텔레그램 모니터링
-
-텔레그램은 기본적으로 꺼져 있다. BotFather에서 봇을 만들고 해당 봇에 메시지를 한 번 보낸 뒤 숫자형 chat ID를 확인한다. 토큰과 ID를 각각 Primary 서버의 제한된 파일에 저장하고 다음 명령을 실행한다.
-
-```bash
-sudo trade-1-configure-telegram /secure/telegram-token /secure/telegram-chat-id
+```text
+trade-1/
+├── main.py                     # Server 1 paper 엔진
+├── config.py                   # .env + JSON 핫 리로드
+├── models.py
+├── exchange/                   # Binance USD-M read-only client
+├── scanner/                    # Server 2 거래대금 스캐너
+├── indicators/                 # EMA/RSI/ADX/ATR/Volume
+├── strategy/                   # MTF 신호 및 점수
+├── risk/                       # 레버리지/수량/SL/피라미딩/차단
+├── trader/                     # 다중 paper position 엔진
+├── storage/                    # SQLite WAL 및 repository
+├── analytics/                  # 성과/패턴/최적화/백테스트
+├── reports/                    # 일일 리포트
+├── notify/                     # Telegram
+├── config/                     # override 및 selected symbols
+├── scripts/                    # 초기화/설치/동기화/실행
+├── systemd/                    # paper/analysis 서비스 예시
+└── tests/
 ```
 
-봇은 시작, 상태, 경고, 모의 진입·체결·청산을 알린다. 실거래를 활성화하지 않으며 사용자 정의 메시지도 허용하지 않는다. 비활성화 명령은 `sudo trade-1-configure-telegram --disable`이다.
+## 설정 파일
 
-발신 메시지는 `user_data/patches/sitecustomize.py` 패치로 한국어 번역된다. Freqtrade 호환성을 위해 `/status`, `/profit`, `/balance`, `/help` 같은 명령어 이름은 영문을 유지한다.
+### `.env`
 
-추가 명령:
+시크릿과 서버별 고정 설정만 둔다. `.env.example`을 복사해 사용하며 Git에 커밋하지 않는다. `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `BINANCE_API_KEY`, `BINANCE_SECRET_KEY`, SSH 키 경로는 코드에 기록하지 않는다.
 
-- `/stake`: 현재 포지션당 증거금을 표시한다.
-- `/stake 20`: 다음 신규 포지션부터 사용할 증거금을 20 USDT로 변경한다.
-- `/daily`: 한국시간 기준 오늘 진입·청산, 실현·미실현 손익, 현재 열린 포지션을 표시한다.
-- `/menu`: 카드형 명령 센터를 표시한다. `/help`와 동일하다.
-- `/learn`: 최근 일일 복기를 표시한다.
-- `/learn_weekly`: 최근 주간 복기를 표시한다.
-- `/learn_monthly`: 최근 월간 복기를 표시한다.
+### `config/config_override.json`
 
-이 명령은 `dry_run` 설정에서만 동작하며 기본 허용 범위는 1~100 USDT다. 이미 열린 포지션에는 적용되지 않는다.
+Server 2만 생성·수정한다.
 
-텔레그램 출력은 `sitecustomize.py`의 공통 UI 포맷터를 거쳐 제목, 상태 아이콘, 구분선,
-정보 우선순위를 일관되게 표시한다. 시작·경고·진입·청산 알림과 주요 명령 화면에 동일하게 적용된다.
+- `MIN_SCORE`: 최소 진입 점수
+- `MAX_LEVERAGE`: 1~5
+- `TRADE_FREQUENCY_MULTIPLIER`: PF 악화 시 20%씩 축소
+- `PYRAMIDING_ENABLED`: 추가매수 활성화
+- `SYMBOL_BLACKLIST`: 신규 진입 제외 목록
+- `_stability`: 자동 원복을 위한 3일 연속 회복 카운터
+- `updated_at`, `reason`: 변경 시각과 근거
 
-컨테이너 교체 전에 거래 DB가 영속화되지 않아 과거 DB를 잃었지만 systemd journal이 남아 있는 경우,
-완료 거래를 학습 DB로 일회성 복구할 수 있다.
+승률 45% 미만이면 점수 +5, PF 1.1 미만이면 빈도 20% 감소, MDD 8% 초과면 레버리지 -1이다. 승률 55%, PF 1.3, MDD 5% 미만이 각각 3일 유지되면 한 단계씩 원복한다. 추가매수 5연속 손실은 자동 비활성화하며 수동으로만 재활성화한다. 거래 100건 미만이면 최적화를 건너뛴다.
+
+### `config/selected_symbols.json`
+
+스캐너 결과와 생성 시각을 담는다. 파일이 없으면 BTC, ETH, SOL, BNB, XRP, DOGE, AVAX, LINK, SUI를 사용한다. 15개 초과 입력은 앞에서 15개만 적용하며 스캐너 출력은 거래대금 내림차순이다.
+
+## DB 스키마
+
+- `trades`: 완료 거래, 비용, PnL, 보유시간, 종료 사유
+- `positions`: 재시작 복구용 열린 포지션 전체 상태
+- `signals`: 점수 구성과 진입 시 지표
+- `indicator_snapshots`: 심볼·타임프레임별 지표
+- `daily_stats`: 승률, PF, PnL, MDD
+- `optimizer_logs`: 분석 지표와 설정 변경 전후
+
+`journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`을 적용한다.
+
+## 최초 배포
+
+두 서버 모두 Ubuntu 사용자 `ubuntu`, 프로젝트 경로 `/opt/trade-1`을 기준으로 한다.
+
+1. 기존 서버에서 시크릿을 `.env`로 복원한다.
+
+   ```bash
+   sudo SERVER_ROLE=paper /opt/trade-1/scripts/restore_env.sh   # Server 1
+   sudo SERVER_ROLE=analysis /opt/trade-1/scripts/restore_env.sh # Server 2
+   ```
+
+2. `reset_trade1.sh`는 역할·`.env`·필수 키·타임스탬프 백업을 모두 확인한 뒤에만 기존 코드를 삭제한다. 백업은 `/opt/trade-1-backups/backup_YYYYMMDD_HHMMSS/`에 생성된다.
+
+3. 새 코드를 `/opt/trade-1`에 배치하고 보존한 `.env`를 되돌린다.
+
+4. 설치한다.
+
+   ```bash
+   cd /opt/trade-1
+   sudo apt-get update
+   sudo apt-get install -y python3-venv rsync curl
+   ./scripts/install.sh
+   ```
+
+5. Server 1은 `trade1-paper.service`가 즉시 시작된다. Server 2는 cron이 00:00 UTC 분석, 4시간 간격 스캐너를 실행한다.
+
+## 서버 간 SSH/rsync
+
+각 서버의 `.env`에 반대 서버 주소, `RSYNC_USER`, `RSYNC_SSH_KEY`를 설정한다. 공개키는 상대 서버 `~/.ssh/authorized_keys`에 읽기/쓰기 범위를 고려해 등록한다.
+
+- Server 1 → Server 2: 매시 55분, SQLite online backup 후 `data/trades.db` 전송
+- Server 2 → Server 1: optimizer/scanner 완료 직후 두 JSON 전송
+
+수동 확인:
 
 ```bash
-sudo journalctl -u trade-freqtrade -o json --no-pager | \
-  sudo docker exec -i --user 1000:1000 trade-freqtrade \
-  python /freqtrade/user_data/strategies/recover_journal_trades.py
+scripts/sync_trades_to_analysis.sh
+scripts/run_scanner.sh
+scripts/run_analysis.sh
 ```
 
-## 운영 명령
+## 실행 및 검증
 
 ```bash
-sudo systemctl status trade-freqtrade
-sudo journalctl -u trade-freqtrade -f
-sudo systemctl stop trade-freqtrade
-sudo systemctl start trade-freqtrade
-docker logs -f trade-freqtrade
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m analytics.backtester --symbol BTCUSDT --days 90
+sudo systemctl status trade1-paper.service
+sudo journalctl -u trade1-paper.service -f
 ```
 
-대시보드/API 암호는 `.secrets/dashboard-password.txt`에만 저장한다.
+이 프로젝트는 paper trading 전용이다. 백테스트·forward test가 충분한 수익성과 안정성을 입증하기 전에는 실제 주문 기능을 추가하지 않는다.

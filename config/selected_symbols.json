@@ -1,0 +1,15 @@
+{
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "AVAXUSDT",
+    "LINKUSDT",
+    "SUIUSDT"
+  ],
+  "updated_at": null,
+  "source": "default_fallback"
+}
