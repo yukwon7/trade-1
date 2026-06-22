@@ -3,23 +3,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 from config import Settings
-from models import Candle, PositionState, Signal
-from risk import CircuitBreaker, PyramidManager, StopManager, calculate_position_size
-from storage import TradeStore
-from trader.position import new_position
+from models import Candle, StrategySignal, TournamentPosition
 
 logger = logging.getLogger(__name__)
 
 
 class PaperTrader:
-    def __init__(self, settings: Settings, store: TradeStore, notifier):
+    def __init__(self, settings: Settings, store, notifier):
         self.settings = settings
         self.store = store
         self.notifier = notifier
-        self.circuit = CircuitBreaker(store)
-        self.positions: dict[str, PositionState] = {}
+        self.positions: dict[str, TournamentPosition] = {}
         self.balance = settings.initial_balance
         self.entry_paused = False
         self._state_path = settings.config_dir / "paper_state.json"
@@ -31,14 +28,11 @@ class PaperTrader:
         self.positions = await self.store.open_positions()
         self.balance = self.settings.initial_balance + await self.store.account_pnl()
         logger.info(
-            "paper account restored: balance=%.2f open_positions=%d entry_paused=%s",
+            "tournament account restored: balance=%.2f positions=%d entry_paused=%s",
             self.balance,
             len(self.positions),
             self.entry_paused,
         )
-
-    def update_settings(self, settings: Settings) -> None:
-        self.settings = settings
 
     async def set_entry_paused(self, paused: bool) -> None:
         async with self._lock:
@@ -49,6 +43,139 @@ class PaperTrader:
             temporary.replace(self._state_path)
             logger.info("operator entry pause changed: %s", self.entry_paused)
 
+    async def open(self, signal: StrategySignal) -> TournamentPosition | None:
+        async with self._lock:
+            if self.entry_paused or signal.symbol in self.positions or len(self.positions) >= self.settings.max_open_positions:
+                return None
+            allowed, reason, resume_at = await self._allow_entry(signal.symbol, signal.strategy_id)
+            if not allowed:
+                key = (f"{signal.strategy_id}:{signal.symbol}", reason)
+                if key not in self._notified_blocks:
+                    self._notified_blocks.add(key)
+                    await self.notifier.circuit_breaker(f"{signal.strategy_id} {signal.symbol}: {reason}", resume_at)
+                return None
+            leverage = max(1, min(self.settings.max_leverage, signal.leverage))
+            stop_price = signal.entry_price * (
+                1.0 - signal.stop_loss_pct if signal.direction == "LONG" else 1.0 + signal.stop_loss_pct
+            )
+            take_profit = None
+            if signal.take_profit_pct:
+                take_profit = signal.entry_price * (
+                    1.0 + signal.take_profit_pct if signal.direction == "LONG" else 1.0 - signal.take_profit_pct
+                )
+            stop_distance = abs(signal.entry_price - stop_price)
+            used_margin = sum(item.margin for item in self.positions.values())
+            available_margin = max(0.0, self.balance - used_margin)
+            per_position_margin = min(available_margin, self.balance / self.settings.max_open_positions)
+            loss_per_unit = (
+                stop_distance
+                + signal.entry_price * (self.settings.fee_rate + self.settings.slippage)
+                + stop_price * self.settings.fee_rate
+            )
+            risk_quantity = self.balance * self.settings.risk_per_trade / loss_per_unit if loss_per_unit else 0.0
+            margin_quantity = per_position_margin * leverage / signal.entry_price if signal.entry_price > 0 else 0.0
+            quantity = max(0.0, min(risk_quantity, margin_quantity))
+            if quantity <= 0:
+                return None
+            position = TournamentPosition(
+                id=None,
+                symbol=signal.symbol,
+                strategy_id=signal.strategy_id,
+                strategy_name=signal.strategy_name,
+                direction=signal.direction,
+                entry_price=signal.entry_price,
+                current_price=signal.entry_price,
+                size=quantity,
+                leverage=leverage,
+                stop_price=stop_price,
+                take_profit_price=take_profit,
+                balance_before=self.balance,
+                metadata=signal.metadata,
+                fee_paid=signal.entry_price * quantity * self.settings.fee_rate,
+                slippage_paid=signal.entry_price * quantity * self.settings.slippage,
+            )
+            await self.store.insert_signal(signal)
+            await self.store.save_position(position)
+            self.positions[position.symbol] = position
+            self._notified_blocks = {item for item in self._notified_blocks if not item[0].endswith(f":{signal.symbol}")}
+            await self.notifier.entry(position, signal.reason)
+            return position
+
+    async def process_tick(self, symbol: str, price: float) -> None:
+        async with self._lock:
+            position = self.positions.get(symbol)
+            if position is None:
+                return
+            position.current_price = price
+            reason = self._fixed_exit(position, price, price)
+            if reason:
+                await self._close(position, self._exit_price(position, reason, price), reason)
+            else:
+                await self.store.save_position(position)
+
+    async def process_strategy_candle(self, symbol: str, strategy, candle: Candle, exit_reason: str | None) -> None:
+        async with self._lock:
+            position = self.positions.get(symbol)
+            if position is None:
+                return
+            position.current_price = candle.close
+            reason = self._fixed_exit(position, candle.low, candle.high) or exit_reason
+            if reason:
+                await self._close(position, self._exit_price(position, reason, candle.close), reason)
+            else:
+                await self.store.save_position(position)
+
+    def _fixed_exit(self, position: TournamentPosition, low: float, high: float) -> str | None:
+        if position.direction == "LONG":
+            if low <= position.stop_price:
+                return "STOP_LOSS"
+            if position.take_profit_price is not None and high >= position.take_profit_price:
+                return "TAKE_PROFIT"
+        else:
+            if high >= position.stop_price:
+                return "STOP_LOSS"
+            if position.take_profit_price is not None and low <= position.take_profit_price:
+                return "TAKE_PROFIT"
+        return None
+
+    @staticmethod
+    def _exit_price(position: TournamentPosition, reason: str, fallback: float) -> float:
+        if reason == "STOP_LOSS":
+            return position.stop_price
+        if reason == "TAKE_PROFIT" and position.take_profit_price is not None:
+            return position.take_profit_price
+        return fallback
+
+    async def _close(self, position: TournamentPosition, price: float, reason: str) -> None:
+        gross = (
+            (price - position.entry_price) * position.size
+            if position.direction == "LONG"
+            else (position.entry_price - price) * position.size
+        )
+        exit_fee = price * position.size * self.settings.fee_rate
+        position.fee_paid += exit_fee
+        pnl = gross - position.fee_paid - position.slippage_paid
+        position.current_price = price
+        position.status = "CLOSED"
+        self.balance += pnl
+        await self.store.insert_trade(position, price, pnl, reason)
+        await self.store.delete_position(position.symbol)
+        self.positions.pop(position.symbol, None)
+        await self.notifier.closed(position, price, pnl, reason)
+
+    async def _allow_entry(self, symbol: str, strategy_id: str) -> tuple[bool, str, str]:
+        state = await self.store.risk_state(symbol, strategy_id)
+        now = datetime.now(timezone.utc)
+        if state["daily_pnl"] <= -(self.settings.initial_balance * 0.05):
+            resume = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return False, "DAILY_LOSS_LIMIT_5_PERCENT", resume.isoformat()
+        if state["consecutive_losses"] >= 3 and state["last_loss_at"]:
+            last_loss = datetime.fromisoformat(state["last_loss_at"])
+            resume = last_loss + timedelta(hours=1)
+            if now < resume:
+                return False, "THREE_CONSECUTIVE_LOSSES", resume.isoformat()
+        return True, "OK", ""
+
     def _load_operator_state(self) -> None:
         if not self._state_path.exists():
             return
@@ -57,95 +184,3 @@ class PaperTrader:
             self.entry_paused = bool(data.get("entry_paused", False))
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("invalid operator state %s: %s", self._state_path, exc)
-
-    async def open(self, signal: Signal) -> PositionState | None:
-        async with self._lock:
-            if self.entry_paused or signal.symbol in self.positions or len(self.positions) >= self.settings.max_open_positions:
-                return None
-            allowed, reason, resume_at = await self.circuit.allow_entry(signal.symbol, self.balance)
-            if not allowed:
-                logger.info("entry blocked %s: %s", signal.symbol, reason)
-                key = (signal.symbol, reason)
-                if key not in self._notified_blocks:
-                    self._notified_blocks.add(key)
-                    await self.notifier.circuit_breaker(f"{signal.symbol}: {reason}", resume_at)
-                return None
-            self._notified_blocks = {item for item in self._notified_blocks if item[0] != signal.symbol}
-            stop, _ = StopManager.initial_levels(signal.direction, signal.entry_price, signal.atr)
-            used_margin = sum(p.remaining_size * p.current_price / p.leverage for p in self.positions.values())
-            quantity = calculate_position_size(
-                self.balance,
-                self.settings.risk_per_trade,
-                signal.entry_price,
-                stop,
-                signal.leverage,
-                max(0.0, self.balance - used_margin),
-            )
-            if quantity <= 0:
-                return None
-            position = new_position(signal, quantity)
-            entry_fee = position.entry_price * position.remaining_size * self.settings.fee_rate
-            entry_slippage = position.entry_price * position.remaining_size * self.settings.slippage
-            position.fee_paid = entry_fee
-            position.slippage_paid = entry_slippage
-            await self.store.save_position(position)
-            self.positions[position.symbol] = position
-            await self.notifier.entry(position)
-            return position
-
-    async def process_candle(self, symbol: str, candle: Candle, trend_valid: bool = True) -> None:
-        async with self._lock:
-            position = self.positions.get(symbol)
-            if position is None:
-                return
-            event = StopManager.update(position, candle.high, candle.low, candle.close)
-            if event:
-                await self._execute_exit(position, event.price, event.size, event.reason, event.final)
-                if event.final:
-                    return
-            if self.settings.pyramiding_enabled and symbol in self.positions:
-                add_size = PyramidManager.next_add_size(position, candle.close, trend_valid)
-                if add_size > 0:
-                    await self._add(position, candle.close, add_size)
-            if symbol in self.positions:
-                await self.store.save_position(position)
-
-    async def _add(self, position: PositionState, price: float, quantity: float) -> None:
-        used_margin = sum(p.remaining_size * p.current_price / p.leverage for p in self.positions.values())
-        available_margin = max(0.0, self.balance - used_margin)
-        quantity = min(quantity, available_margin * position.leverage / price)
-        if quantity <= 0:
-            return
-        old_size = position.remaining_size
-        new_size = old_size + quantity
-        position.entry_price = (position.entry_price * old_size + price * quantity) / new_size
-        position.size += quantity
-        position.remaining_size = new_size
-        position.add_count += 1
-        position.last_add_price = price
-        position.fee_paid += price * quantity * self.settings.fee_rate
-        position.slippage_paid += price * quantity * self.settings.slippage
-        await self.store.save_position(position)
-        await self.notifier.pyramid(position, price, quantity)
-
-    async def _execute_exit(self, position: PositionState, price: float, quantity: float, reason: str, final: bool) -> None:
-        quantity = min(quantity, position.remaining_size)
-        gross = (price - position.entry_price) * quantity if position.direction == "LONG" else (position.entry_price - price) * quantity
-        exit_fee = price * quantity * self.settings.fee_rate
-        allocated_entry_fee = position.entry_price * quantity * self.settings.fee_rate
-        allocated_slippage = position.entry_price * quantity * self.settings.slippage
-        pnl = gross - exit_fee - allocated_entry_fee - allocated_slippage
-        position.realized_pnl += pnl
-        position.fee_paid += exit_fee
-        position.remaining_size -= quantity
-        self.balance += pnl
-        if final or position.remaining_size <= 1e-12:
-            position.status = "CLOSED"
-            total_pnl = position.realized_pnl
-            await self.store.insert_trade(position, price, total_pnl, position.fee_paid, position.slippage_paid, reason)
-            await self.store.delete_position(position.symbol)
-            self.positions.pop(position.symbol, None)
-            await self.notifier.closed(position, price, total_pnl, reason)
-        else:
-            await self.store.save_position(position)
-            await self.notifier.partial_close(position, price, quantity, pnl)

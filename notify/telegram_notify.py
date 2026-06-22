@@ -29,24 +29,26 @@ class TelegramNotifier:
             logger.warning("telegram send failed: %s", exc)
             return False
 
-    async def startup(self, role: str, symbols: int) -> None:
-        await self.send(f"🤖 <b>trade-1 시작</b>\n역할: {html.escape(role)}\n모니터링: {symbols}개")
+    async def startup(self, role: str, symbols: int, strategy: str = "") -> None:
+        strategy_line = f"\n전략: {html.escape(strategy)}" if strategy else ""
+        await self.send(f"🤖 <b>trade-1 토너먼트 시작</b>\n역할: {html.escape(role)}\n모니터링: {symbols}개{strategy_line}")
 
-    async def entry(self, position) -> None:
+    async def entry(self, position, reason: str = "") -> None:
         await self.send(
-            f"📥 <b>진입</b> {position.symbol} {position.direction}\n"
-            f"가격 {position.entry_price:.6g} · {position.leverage}x · 점수 {position.score}\n"
-            f"SL {position.sl_price:.6g} · 2R {position.tp_price:.6g}"
+            f"📥 <b>진입</b> [{position.strategy_id}] {position.symbol} {position.direction}\n"
+            f"가격 {position.entry_price:.6g} · {position.leverage}x\n"
+            f"SL {position.stop_price:.6g} · TP {position.take_profit_price if position.take_profit_price is not None else '전략 청산'}\n"
+            f"근거 {html.escape(reason)}"
         )
 
-    async def pyramid(self, position, price: float, quantity: float) -> None:
-        await self.send(f"➕ <b>추가매수 {position.add_count}/3</b> {position.symbol}\n가격 {price:.6g} · 수량 {quantity:.6g} · 평단 {position.entry_price:.6g}")
-
-    async def partial_close(self, position, price: float, quantity: float, pnl: float) -> None:
-        await self.send(f"✂️ <b>50% 부분청산</b> {position.symbol}\n가격 {price:.6g} · 실현 PnL {pnl:+.2f} USDT")
-
     async def closed(self, position, price: float, pnl: float, reason: str) -> None:
-        await self.send(f"📤 <b>전체청산</b> {position.symbol}\n가격 {price:.6g} · PnL {pnl:+.2f} USDT\n사유 {html.escape(reason)}")
+        await self.send(f"📤 <b>청산</b> [{position.strategy_id}] {position.symbol}\n가격 {price:.6g} · PnL {pnl:+.2f} USDT\n사유 {html.escape(reason)}")
+
+    async def strategy_changed(self, before: str, after: str, source: str) -> None:
+        await self.send(
+            f"🔁 <b>전략 변경</b>\n{html.escape(before or '-')} → {html.escape(after)}\n"
+            f"방식: {html.escape(source)}"
+        )
 
     async def daily_report(self, report: str) -> None:
         await self.send(f"📊 <b>일일 리포트</b>\n{html.escape(report)}")

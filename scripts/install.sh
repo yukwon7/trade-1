@@ -33,8 +33,7 @@ if [[ "$SERVER_ROLE" == "paper" ]]; then
   printf '55 * * * * root cd /opt/trade-1 && scripts/sync_trades_to_analysis.sh >> logs/sync.log 2>&1\n' | sudo tee "$cron_file" >/dev/null
 else
   {
-    printf '0 0 * * * root cd /opt/trade-1 && scripts/run_analysis.sh >> logs/analysis.log 2>&1\n'
-    printf '7 */4 * * * root cd /opt/trade-1 && scripts/run_scanner.sh >> logs/scanner.log 2>&1\n'
+    printf '58 * * * * root cd /opt/trade-1 && scripts/run_analysis.sh >> logs/analysis.log 2>&1\n'
   } | sudo tee "$cron_file" >/dev/null
 fi
 sudo chmod 644 "$cron_file"

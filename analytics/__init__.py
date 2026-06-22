@@ -1,3 +1,1 @@
-from .performance_analyzer import PerformanceAnalyzer
-
-__all__ = ["PerformanceAnalyzer"]
+"""Tournament analysis commands and metrics."""

@@ -1,9 +1,0 @@
-{
-  "MIN_SCORE": 65,
-  "MAX_LEVERAGE": 5,
-  "TRADE_FREQUENCY_MULTIPLIER": 1.0,
-  "PYRAMIDING_ENABLED": true,
-  "SYMBOL_BLACKLIST": [],
-  "updated_at": null,
-  "reason": "initial defaults"
-}

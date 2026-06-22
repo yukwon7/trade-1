@@ -40,6 +40,23 @@ class BinanceFuturesClient:
         payload = await self._get("/fapi/v1/premiumIndex", {"symbol": symbol})
         return float(payload["markPrice"])
 
+    async def get_market_context(self, symbol: str, include_order_book: bool = False) -> dict[str, Any]:
+        premium_task = self._get("/fapi/v1/premiumIndex", {"symbol": symbol})
+        if include_order_book:
+            premium, depth = await asyncio.gather(
+                premium_task,
+                self._get("/fapi/v1/depth", {"symbol": symbol, "limit": 20}),
+            )
+        else:
+            premium, depth = await premium_task, {}
+        return {
+            "mark_price": float(premium["markPrice"]),
+            "funding_rate": float(premium.get("lastFundingRate", 0.0)),
+            "next_funding_time": int(premium.get("nextFundingTime", 0)),
+            "bids": depth.get("bids", []),
+            "asks": depth.get("asks", []),
+        }
+
     async def get_all_tickers(self) -> list[dict[str, Any]]:
         payload = await self._get("/fapi/v1/ticker/24hr")
         return payload if isinstance(payload, list) else []

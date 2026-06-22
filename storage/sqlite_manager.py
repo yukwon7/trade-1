@@ -4,69 +4,78 @@ from pathlib import Path
 
 import aiosqlite
 
+
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS trades (
+CREATE TABLE IF NOT EXISTS tournament_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL, direction TEXT NOT NULL,
-    entry_price REAL NOT NULL, exit_price REAL,
-    entry_time TEXT NOT NULL, exit_time TEXT,
-    size REAL NOT NULL, leverage INTEGER NOT NULL,
-    score INTEGER NOT NULL, add_count INTEGER NOT NULL DEFAULT 0,
-    fee REAL NOT NULL DEFAULT 0, slippage REAL NOT NULL DEFAULT 0,
-    pnl REAL, holding_time INTEGER, exit_reason TEXT,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    exit_price REAL NOT NULL,
+    entry_time TEXT NOT NULL,
+    exit_time TEXT NOT NULL,
+    size REAL NOT NULL,
+    leverage INTEGER NOT NULL,
+    fee REAL NOT NULL,
+    slippage REAL NOT NULL,
+    pnl REAL NOT NULL,
+    return_pct REAL NOT NULL,
+    balance_before REAL NOT NULL,
+    holding_time INTEGER NOT NULL,
+    exit_reason TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'PAPER',
     created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS positions (
+CREATE TABLE IF NOT EXISTS tournament_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL UNIQUE, direction TEXT NOT NULL,
-    entry_price REAL NOT NULL, current_price REAL NOT NULL,
-    size REAL NOT NULL, remaining_size REAL NOT NULL,
-    initial_size REAL NOT NULL, initial_atr REAL NOT NULL,
-    leverage INTEGER NOT NULL, score INTEGER NOT NULL,
-    last_add_price REAL NOT NULL,
-    sl_price REAL NOT NULL, tp_price REAL NOT NULL,
-    trailing_active INTEGER NOT NULL DEFAULT 0,
-    add_count INTEGER NOT NULL DEFAULT 0,
-    highest_price REAL NOT NULL, lowest_price REAL NOT NULL,
-    realized_pnl REAL NOT NULL DEFAULT 0,
+    symbol TEXT NOT NULL UNIQUE,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    current_price REAL NOT NULL,
+    size REAL NOT NULL,
+    leverage INTEGER NOT NULL,
+    stop_price REAL NOT NULL,
+    take_profit_price REAL,
+    balance_before REAL NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
     fee_paid REAL NOT NULL DEFAULT 0,
     slippage_paid REAL NOT NULL DEFAULT 0,
-    status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS signals (
+CREATE TABLE IF NOT EXISTS strategy_signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL, direction TEXT NOT NULL, score INTEGER NOT NULL,
-    trend_score INTEGER NOT NULL, momentum_score INTEGER NOT NULL,
-    volume_score INTEGER NOT NULL, breakout_score INTEGER NOT NULL,
-    volatility_score INTEGER NOT NULL,
-    rsi REAL NOT NULL, adx REAL NOT NULL, atr REAL NOT NULL,
-    ema20 REAL NOT NULL, ema50 REAL NOT NULL, volume_ratio REAL NOT NULL,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    leverage INTEGER NOT NULL,
+    stop_loss_pct REAL NOT NULL,
+    take_profit_pct REAL,
+    reason TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS indicator_snapshots (
+CREATE TABLE IF NOT EXISTS tournament_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL, timeframe TEXT NOT NULL,
-    ema20 REAL NOT NULL, ema50 REAL NOT NULL, rsi REAL NOT NULL,
-    adx REAL NOT NULL, atr REAL NOT NULL, volume_ratio REAL NOT NULL,
+    evaluated_at TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    rankings TEXT NOT NULL,
+    best_strategy TEXT,
+    action TEXT NOT NULL,
+    reason TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS daily_stats (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL UNIQUE,
-    total_trades INTEGER NOT NULL, win_trades INTEGER NOT NULL,
-    loss_trades INTEGER NOT NULL, win_rate REAL NOT NULL,
-    profit_factor REAL NOT NULL, total_pnl REAL NOT NULL,
-    max_dd REAL NOT NULL, created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS optimizer_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, run_time TEXT NOT NULL,
-    analyzed_trades INTEGER NOT NULL, win_rate REAL NOT NULL,
-    profit_factor REAL NOT NULL, mdd REAL NOT NULL,
-    adjustments TEXT NOT NULL, created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_trades_exit_time ON trades(exit_time);
-CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol, exit_time);
-CREATE INDEX IF NOT EXISTS idx_signals_created ON signals(created_at);
-CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_tf ON indicator_snapshots(symbol, timeframe, created_at);
+CREATE INDEX IF NOT EXISTS idx_tournament_trades_strategy ON tournament_trades(strategy_id, exit_time);
+CREATE INDEX IF NOT EXISTS idx_tournament_trades_symbol ON tournament_trades(strategy_id, symbol, exit_time);
+CREATE INDEX IF NOT EXISTS idx_tournament_trades_exit ON tournament_trades(exit_time);
+CREATE INDEX IF NOT EXISTS idx_strategy_signals_created ON strategy_signals(strategy_id, created_at);
 """
 
 

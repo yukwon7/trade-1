@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 Direction = Literal["LONG", "SHORT"]
 
@@ -23,68 +23,35 @@ class Candle:
 
 
 @dataclass(slots=True, frozen=True)
-class IndicatorSnapshot:
-    symbol: str
-    timeframe: str
-    close: float
-    ema20: float
-    ema50: float
-    rsi: float
-    adx: float
-    atr: float
-    atr_average: float
-    volume_ratio: float
-    support: float
-    resistance: float
-    previous_close: float
-    candle_high: float
-    candle_low: float
-    created_at: str = field(default_factory=utc_now_iso)
-
-
-@dataclass(slots=True, frozen=True)
-class Signal:
+class StrategySignal:
+    strategy_id: str
+    strategy_name: str
     symbol: str
     direction: Direction
-    score: int
-    trend_score: int
-    momentum_score: int
-    volume_score: int
-    breakout_score: int
-    volatility_score: int
     entry_price: float
-    atr: float
-    adx: float
-    rsi: float
-    ema20: float
-    ema50: float
-    volume_ratio: float
-    leverage: int = 1
-    reason: str = ""
+    leverage: int
+    stop_loss_pct: float
+    take_profit_pct: float | None
+    reason: str
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now_iso)
 
 
 @dataclass(slots=True)
-class PositionState:
+class TournamentPosition:
     id: int | None
     symbol: str
+    strategy_id: str
+    strategy_name: str
     direction: Direction
     entry_price: float
     current_price: float
     size: float
     leverage: int
-    initial_atr: float
-    sl_price: float
-    tp_price: float
-    initial_size: float
-    remaining_size: float
-    score: int
-    last_add_price: float = 0.0
-    trailing_active: bool = False
-    add_count: int = 0
-    highest_price: float = 0.0
-    lowest_price: float = 0.0
-    realized_pnl: float = 0.0
+    stop_price: float
+    take_profit_price: float | None
+    balance_before: float
+    metadata: dict[str, Any] = field(default_factory=dict)
     fee_paid: float = 0.0
     slippage_paid: float = 0.0
     status: str = "OPEN"
@@ -92,15 +59,5 @@ class PositionState:
     updated_at: str = field(default_factory=utc_now_iso)
 
     @property
-    def one_r(self) -> float:
-        return self.initial_atr * 1.5
-
-
-@dataclass(slots=True, frozen=True)
-class ExitEvent:
-    symbol: str
-    direction: Direction
-    price: float
-    size: float
-    reason: str
-    final: bool
+    def margin(self) -> float:
+        return self.current_price * self.size / self.leverage

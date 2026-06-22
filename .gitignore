@@ -6,6 +6,8 @@ __pycache__/
 data/
 logs/
 config/paper_state.json
+config/tournament_control.json
+config/tournament_result.json
 backup_*/
 .pytest_cache/
 .coverage

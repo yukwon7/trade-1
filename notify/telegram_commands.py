@@ -8,60 +8,53 @@ from typing import Any
 
 import aiohttp
 
-from analytics.performance_analyzer import PerformanceAnalyzer
+from analytics.tournament_evaluator import TournamentEvaluator, _metrics, report_text
+from strategies import STRATEGIES
 
 logger = logging.getLogger(__name__)
 
 
 BOT_COMMANDS = [
-    {"command": "status", "description": "봇 상태와 열린 포지션"},
+    {"command": "status", "description": "봇과 현재 전략 상태"},
+    {"command": "strategy", "description": "전략 조회·선택·자동 전환"},
+    {"command": "strategies", "description": "10개 전략 목록"},
+    {"command": "mode", "description": "MODE_A 또는 MODE_B 선택"},
+    {"command": "tournament", "description": "현재 토너먼트 리포트"},
+    {"command": "rankings", "description": "전략별 현재 순위"},
     {"command": "positions", "description": "열린 포지션 상세"},
     {"command": "balance", "description": "모의투자 잔고와 증거금"},
     {"command": "daily", "description": "오늘 거래 성과"},
     {"command": "weekly", "description": "최근 7일 거래 성과"},
     {"command": "monthly", "description": "최근 30일 거래 성과"},
-    {"command": "profit", "description": "전체 누적 손익"},
     {"command": "trades", "description": "최근 거래 내역"},
-    {"command": "performance", "description": "심볼별 거래 성과"},
-    {"command": "symbols", "description": "현재 모니터링 심볼"},
-    {"command": "config", "description": "현재 거래 설정"},
-    {"command": "count", "description": "포지션 슬롯 현황"},
     {"command": "pause", "description": "신규 진입 일시정지"},
     {"command": "resume", "description": "신규 진입 재개"},
-    {"command": "stop", "description": "신규 진입 중지"},
-    {"command": "start", "description": "신규 진입 시작"},
-    {"command": "stake", "description": "리스크 기반 주문금액 확인"},
-    {"command": "learn", "description": "오늘 거래 복기"},
-    {"command": "learn_weekly", "description": "최근 7일 거래 복기"},
-    {"command": "learn_monthly", "description": "최근 30일 거래 복기"},
     {"command": "help", "description": "전체 명령어 안내"},
 ]
 
 
 class TelegramCommandHandler:
-    def __init__(self, session, token: str, chat_id: str, notifier, trader, store, runtime):
+    def __init__(self, session, token: str, chat_id: str, notifier, trader, store, controller):
         self.session = session
         self.chat_id = str(chat_id)
         self.notifier = notifier
         self.trader = trader
         self.store = store
-        self.runtime = runtime
+        self.controller = controller
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.offset = 0
 
     async def run(self, stop_event: asyncio.Event) -> None:
-        backoff = 1
-        configured = False
+        backoff, configured = 1, False
         while not stop_event.is_set():
             try:
                 if not configured:
-                    await self._configure()
+                    await self._api("deleteWebhook", {"drop_pending_updates": False})
+                    await self._api("setMyCommands", {"commands": BOT_COMMANDS})
                     configured = True
                     logger.info("telegram command polling started")
                 result = await self._api(
-                    "getUpdates",
-                    {"offset": self.offset, "timeout": 25, "allowed_updates": ["message"]},
-                    timeout=35,
+                    "getUpdates", {"offset": self.offset, "timeout": 25, "allowed_updates": ["message"]}, timeout=35
                 )
                 for update in result:
                     self.offset = max(self.offset, int(update["update_id"]) + 1)
@@ -75,15 +68,9 @@ class TelegramCommandHandler:
                 await asyncio.sleep(backoff)
                 backoff = min(30, backoff * 2)
 
-    async def _configure(self) -> None:
-        await self._api("deleteWebhook", {"drop_pending_updates": False})
-        await self._api("setMyCommands", {"commands": BOT_COMMANDS})
-
     async def _api(self, method: str, payload: dict[str, Any], timeout: int = 15):
         async with self.session.post(
-            f"{self.api_url}/{method}",
-            json=payload,
-            timeout=aiohttp.ClientTimeout(total=timeout),
+            f"{self.api_url}/{method}", json=payload, timeout=aiohttp.ClientTimeout(total=timeout)
         ) as response:
             data = await response.json(content_type=None)
             if response.status != 200 or not data.get("ok"):
@@ -91,13 +78,12 @@ class TelegramCommandHandler:
             return data.get("result")
 
     async def handle_update(self, update: dict[str, Any]) -> None:
-        message = update.get("message") or update.get("edited_message") or {}
-        chat = message.get("chat") or {}
+        message = update.get("message") or {}
         text = message.get("text")
-        if str(chat.get("id")) != self.chat_id or not isinstance(text, str) or not text.startswith("/"):
+        if str((message.get("chat") or {}).get("id")) != self.chat_id or not isinstance(text, str) or not text.startswith("/"):
             return
-        command, _, argument = text.strip().partition(" ")
-        command = command[1:].split("@", 1)[0].lower()
+        raw, _, argument = text.strip().partition(" ")
+        command = raw[1:].split("@", 1)[0].lower()
         logger.info("telegram command received: /%s", command)
         try:
             reply = await self.dispatch(command, argument.strip())
@@ -112,100 +98,122 @@ class TelegramCommandHandler:
             return self.help_text()
         if command in {"start", "resume"}:
             await self.trader.set_entry_paused(False)
-            return "▶️ <b>신규 진입 재개</b>\n기존 포지션 관리와 신규 신호 진입이 모두 실행됩니다."
+            return "▶️ <b>신규 진입 재개</b>"
         if command in {"pause", "stop"}:
             await self.trader.set_entry_paused(True)
-            return "⏸ <b>신규 진입 중지</b>\n열린 포지션의 손절·익절 관리는 계속 실행됩니다."
+            return "⏸ <b>신규 진입 중지</b>\n열린 포지션의 청산 관리는 계속됩니다."
+        if command == "strategy":
+            return self._strategy_command(argument)
+        if command == "strategies":
+            return self._strategies_text()
+        if command == "mode":
+            return self._mode_command(argument)
+        if command in {"tournament", "rankings"}:
+            report = await TournamentEvaluator(self.trader.settings, self.store).evaluate(persist=False)
+            return report_text(report)
         if command == "status":
             return self._status_text()
         if command == "positions":
             return self._positions_text()
         if command == "balance":
             return await self._balance_text()
-        if command == "profit":
-            pnl = await self.store.account_pnl()
-            return f"💰 <b>전체 누적 손익</b>\n{pnl:+.2f} USDT"
+        if command in {"profit", "performance"}:
+            return await self._performance_text()
         if command == "count":
-            return f"🧮 <b>포지션 슬롯</b>\n사용 {len(self.trader.positions)} / 최대 {self.trader.settings.max_open_positions}"
+            return f"🧮 <b>포지션 슬롯</b>\n{len(self.trader.positions)} / {self.trader.settings.max_open_positions}"
         if command == "symbols":
-            symbols = self.runtime.current.symbols
-            return f"🔎 <b>모니터링 심볼 {len(symbols)}개</b>\n{html.escape(', '.join(symbols))}"
-        if command == "config":
+            return f"🔎 <b>심볼 8개</b>\n{', '.join(self.trader.settings.symbols)}"
+        if command in {"config", "stake"}:
             return self._config_text()
-        if command == "stake":
-            risk = self.trader.balance * self.trader.settings.risk_per_trade
-            return (
-                "🛡 <b>리스크 기반 주문금액</b>\n"
-                f"거래당 최대 손실 예산: {risk:.2f} USDT "
-                f"({self.trader.settings.risk_per_trade * 100:.2f}%)\n"
-                "고정 증거금이 아니라 진입가와 ATR 손절 거리로 수량을 자동 계산합니다."
-            )
         if command == "trades":
             return await self._recent_trades_text()
-        if command == "performance":
-            return await self._performance_text()
         if command in {"daily", "learn"}:
-            return await self._period_text("오늘", timedelta(days=1), calendar_day=True, review=command == "learn")
+            return await self._period_text("오늘", timedelta(days=1), calendar_day=True)
         if command in {"weekly", "learn_weekly"}:
-            return await self._period_text("최근 7일", timedelta(days=7), review=command.startswith("learn"))
+            return await self._period_text("최근 7일", timedelta(days=7))
         if command in {"monthly", "learn_monthly"}:
-            return await self._period_text("최근 30일", timedelta(days=30), review=command.startswith("learn"))
-        return f"❓ 지원하지 않는 명령입니다: /{html.escape(command)}\n/help에서 명령 목록을 확인하세요."
+            return await self._period_text("최근 30일", timedelta(days=30))
+        return f"❓ 지원하지 않는 명령입니다: /{html.escape(command)}\n/help를 확인하세요."
 
-    def _status_text(self) -> str:
-        state = "신규 진입 중지" if self.trader.entry_paused else "정상 실행"
+    def _strategy_command(self, argument: str) -> str:
+        value = argument.strip().upper()
+        if not value:
+            status = self.controller.status()
+            return (
+                "🎯 <b>현재 전략</b>\n"
+                f"{status['active_strategy']} {html.escape(status['strategy_name'])}\n"
+                f"선택 방식: {status['source']} · 모드: {status['mode']}\n\n"
+                "변경: /strategy S03\n자동 복귀: /strategy auto"
+            )
+        if value == "AUTO":
+            self.controller.set_manual_strategy(None)
+            status = self.controller.status()
+            return f"🔁 <b>자동 선택 복귀</b>\n현재 {status['active_strategy']} · 방식 {status['source']}"
+        if value not in STRATEGIES:
+            return "전략 ID는 S01~S10 중 하나여야 합니다. 예: /strategy S07"
+        self.controller.set_manual_strategy(value)
+        strategy = STRATEGIES[value]
         return (
-            "🤖 <b>trade-1 상태</b>\n"
-            f"상태: {state}\n"
-            f"잔고: {self.trader.balance:.2f} USDT\n"
-            f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}\n"
-            f"모니터링: {len(self.runtime.current.symbols)}개\n\n"
-            f"{self._positions_text(include_header=False)}"
+            f"🎯 <b>수동 전략 고정</b>\n{value} {html.escape(strategy.name)} · {strategy.leverage}x\n"
+            "기존 포지션은 진입 당시 전략으로 청산까지 관리됩니다."
         )
 
-    def _positions_text(self, include_header: bool = True) -> str:
+    def _mode_command(self, argument: str) -> str:
+        if not argument:
+            return f"현재 모드: {self.controller.mode}\n변경: /mode A 또는 /mode B"
+        try:
+            self.controller.set_mode(argument)
+        except ValueError:
+            return "모드는 A 또는 B만 가능합니다."
+        return f"🔄 <b>토너먼트 모드 변경</b>\n{self.controller.mode} · S01부터 자동 로테이션을 재시작합니다."
+
+    def _status_text(self) -> str:
+        strategy = self.controller.status()
+        state = "신규 진입 중지" if self.trader.entry_paused else "정상 실행"
+        return (
+            "🤖 <b>trade-1 토너먼트</b>\n"
+            f"상태: {state}\n"
+            f"전략: {strategy['active_strategy']} {html.escape(strategy['strategy_name'])} ({strategy['source']})\n"
+            f"잔고: {self.trader.balance:.2f} USDT\n"
+            f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}\n\n"
+            f"{self._positions_text(False)}"
+        )
+
+    def _positions_text(self, header: bool = True) -> str:
         if not self.trader.positions:
             body = "열린 포지션이 없습니다."
         else:
             lines = []
             for position in sorted(self.trader.positions.values(), key=lambda item: item.symbol):
                 gross = (
-                    (position.current_price - position.entry_price) * position.remaining_size
-                    if position.direction == "LONG"
-                    else (position.entry_price - position.current_price) * position.remaining_size
+                    (position.current_price - position.entry_price) * position.size
+                    if position.direction == "LONG" else (position.entry_price - position.current_price) * position.size
                 )
                 lines.append(
-                    f"<b>{html.escape(position.symbol)}</b> {position.direction} {position.leverage}x\n"
+                    f"<b>[{position.strategy_id}] {position.symbol}</b> {position.direction} {position.leverage}x\n"
                     f"진입 {position.entry_price:.6g} · 현재 {position.current_price:.6g}\n"
-                    f"미실현(비용 전) {gross:+.2f} · SL {position.sl_price:.6g} · 추가 {position.add_count}/3"
+                    f"미실현(비용 전) {gross:+.2f} · SL {position.stop_price:.6g}"
                 )
             body = "\n\n".join(lines)
-        return f"📌 <b>열린 포지션</b>\n{body}" if include_header else body
+        return f"📌 <b>열린 포지션</b>\n{body}" if header else body
 
     async def _balance_text(self) -> str:
-        used_margin = sum(
-            position.remaining_size * position.current_price / position.leverage
-            for position in self.trader.positions.values()
-        )
+        used = sum(position.margin for position in self.trader.positions.values())
         pnl = await self.store.account_pnl()
         return (
             "💵 <b>모의투자 계좌</b>\n"
-            f"현재 잔고: {self.trader.balance:.2f} USDT\n"
-            f"누적 실현손익: {pnl:+.2f} USDT\n"
-            f"사용 증거금: {used_margin:.2f} USDT\n"
-            f"가용 추정액: {max(0.0, self.trader.balance - used_margin):.2f} USDT"
+            f"잔고 {self.trader.balance:.2f} · 누적손익 {pnl:+.2f} USDT\n"
+            f"사용 증거금 {used:.2f} · 가용 추정 {max(0.0, self.trader.balance - used):.2f} USDT"
         )
 
     def _config_text(self) -> str:
         settings = self.trader.settings
         return (
-            "⚙️ <b>현재 거래 설정</b>\n"
-            f"최소 점수: {settings.min_score}\n"
+            "⚙️ <b>토너먼트 리스크 설정</b>\n"
+            f"거래당 최대 손실: {settings.risk_per_trade * 100:.1f}% ({self.trader.balance * settings.risk_per_trade:.2f} USDT)\n"
+            f"전체 최대 포지션: {settings.max_open_positions}\n"
             f"최대 레버리지: {settings.max_leverage}x\n"
-            f"최대 포지션: {settings.max_open_positions}\n"
-            f"거래당 리스크: {settings.risk_per_trade * 100:.2f}%\n"
-            f"추가매수: {'사용' if settings.pyramiding_enabled else '중지'}\n"
-            f"거래 빈도 배수: {settings.trade_frequency_multiplier:.2f}"
+            "심볼당 포지션: 1개 · 일일 손실 한도: 5%"
         )
 
     async def _recent_trades_text(self) -> str:
@@ -213,56 +221,48 @@ class TelegramCommandHandler:
         if not rows:
             return "📜 <b>최근 거래</b>\n완료된 거래가 없습니다."
         lines = [
-            f"{row['symbol']} {row['direction']} · {float(row['pnl'] or 0):+.2f} USDT · {html.escape(str(row['exit_reason'] or '-'))}"
+            f"[{row['strategy_id']}] {row['symbol']} {row['direction']} · {float(row['pnl']):+.2f} · {html.escape(row['exit_reason'])}"
             for row in rows
         ]
         return "📜 <b>최근 거래 10건</b>\n" + "\n".join(lines)
 
     async def _performance_text(self) -> str:
-        rows = await self.store.performance_rows(1000)
+        rows = await self.store.strategy_rows()
         if not rows:
-            return "📈 <b>심볼별 성과</b>\n완료된 거래가 없습니다."
-        grouped = PerformanceAnalyzer.grouped(rows, "symbol")
-        ordered = sorted(grouped.items(), key=lambda item: item[1]["total_pnl"], reverse=True)
-        lines = [
-            f"{html.escape(symbol)}: {metrics['trades']}회 · 승률 {metrics['win_rate'] * 100:.1f}% · {metrics['total_pnl']:+.2f}"
-            for symbol, metrics in ordered[:15]
-        ]
-        return "📈 <b>심볼별 성과</b>\n" + "\n".join(lines)
+            return "📈 <b>전략별 성과</b>\n완료된 거래가 없습니다."
+        lines = []
+        for strategy_id in STRATEGIES:
+            selected = [row for row in rows if row["strategy_id"] == strategy_id]
+            metrics = _metrics(selected, self.trader.settings.initial_balance)
+            lines.append(
+                f"{strategy_id}: {metrics['trade_count']}회 · 승률 {metrics['win_rate']*100:.1f}% · {metrics['net_pnl']:+.2f}"
+            )
+        return "📈 <b>전략별 성과</b>\n" + "\n".join(lines)
 
-    async def _period_text(self, label: str, period: timedelta, calendar_day: bool = False, review: bool = False) -> str:
+    async def _period_text(self, label: str, period: timedelta, calendar_day: bool = False) -> str:
         now = datetime.now(timezone.utc)
         since = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc) if calendar_day else now - period
         rows = await self.store.trades_since(since.isoformat())
-        metrics = PerformanceAnalyzer.summarize(rows)
-        if not rows:
-            return f"📊 <b>{label} {'복기' if review else '성과'}</b>\n완료된 거래가 없습니다."
-        text = (
-            f"📊 <b>{label} {'복기' if review else '성과'}</b>\n"
-            f"거래 {metrics['trades']}회 · 승 {metrics['wins']} / 패 {metrics['losses']}\n"
-            f"승률 {metrics['win_rate'] * 100:.1f}% · PF {metrics['profit_factor']:.2f}\n"
-            f"손익 {metrics['total_pnl']:+.2f} USDT · MDD {metrics['mdd']:.2f} USDT"
+        metrics = _metrics(rows, self.trader.settings.initial_balance)
+        return (
+            f"📊 <b>{label} 성과</b>\n"
+            f"거래 {metrics['trade_count']}회 · 승률 {metrics['win_rate']*100:.2f}%\n"
+            f"PnL {metrics['net_pnl']:+.2f} · PF {metrics['profit_factor']:.2f}\n"
+            f"MDD {metrics['max_drawdown']*100:.2f}% · Sharpe {metrics['sharpe_ratio']:.2f}"
         )
-        if review:
-            grouped = PerformanceAnalyzer.grouped(rows, "symbol")
-            ordered = sorted(grouped.items(), key=lambda item: item[1]["total_pnl"], reverse=True)
-            best = ordered[0]
-            worst = ordered[-1]
-            text += (
-                f"\n최고: {html.escape(best[0])} {best[1]['total_pnl']:+.2f}"
-                f"\n최저: {html.escape(worst[0])} {worst[1]['total_pnl']:+.2f}"
-            )
-        return text
+
+    @staticmethod
+    def _strategies_text() -> str:
+        return "🧩 <b>등록 전략</b>\n" + "\n".join(
+            f"{key} · {html.escape(strategy.name)} · {strategy.leverage}x" for key, strategy in STRATEGIES.items()
+        )
 
     @staticmethod
     def help_text() -> str:
         return (
-            "📚 <b>trade-1 명령어</b>\n"
-            "/status /positions /balance /profit /count\n"
-            "/daily /weekly /monthly /trades /performance\n"
-            "/learn /learn_weekly /learn_monthly\n"
-            "/symbols /config /stake\n"
-            "/pause 또는 /stop — 신규 진입 중지\n"
-            "/resume 또는 /start — 신규 진입 재개\n\n"
-            "중지 상태에서도 열린 포지션의 손절·익절은 계속 관리합니다."
+            "📚 <b>토너먼트 명령어</b>\n"
+            "/strategy — 현재 전략\n/strategy S01 — 수동 전략 선택\n/strategy auto — 자동 선택 복귀\n"
+            "/strategies — 전략 목록\n/mode A 또는 /mode B\n/tournament /rankings\n"
+            "/status /positions /balance /trades\n/daily /weekly /monthly\n"
+            "/pause /resume\n\n수동 전환 시 기존 포지션은 원래 전략으로 계속 관리됩니다."
         )
