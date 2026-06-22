@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import logging
 import signal as os_signal
 import sys
@@ -88,16 +89,23 @@ class PaperApplication:
             for symbol, result in zip(self.settings.symbols, results):
                 if isinstance(result, Exception):
                     logger.error("strategy cycle failed %s: %s", symbol, result)
+            outcomes = Counter(str(item) for item in results if not isinstance(item, Exception))
+            logger.info(
+                "strategy cycle: active=%s outcomes=%s open_positions=%d",
+                active.strategy_id,
+                dict(outcomes),
+                len(trader.positions),
+            )
             elapsed = time.monotonic() - started
             await asyncio.sleep(max(5.0, self._seconds_to_next_five_minute() - elapsed))
 
     async def _analyze_symbol(self, symbol, active, client, cache, trader) -> None:
         candles_5m, candles_15m = await asyncio.gather(cache.refresh(symbol, "5m"), cache.refresh(symbol, "15m"))
         if min(len(candles_5m), len(candles_15m)) < 100:
-            return
+            return "INSUFFICIENT_DATA"
         latest = candles_5m[-1]
         if self.last_processed.get(symbol) == latest.open_time:
-            return
+            return "ALREADY_PROCESSED"
         self.last_processed[symbol] = latest.open_time
         existing = trader.positions.get(symbol)
         strategy_ids = {active.strategy_id}
@@ -115,7 +123,10 @@ class PaperApplication:
         if symbol not in trader.positions:
             signal = active.evaluate(symbol, candles_5m, candles_15m, context)
             if signal:
-                await trader.open(signal)
+                opened = await trader.open(signal)
+                return "OPENED" if opened else "SIGNAL_BLOCKED"
+            return "NO_SIGNAL"
+        return "POSITION_MANAGED"
 
     async def _position_loop(self, client, trader) -> None:
         while not self.stop_event.is_set():

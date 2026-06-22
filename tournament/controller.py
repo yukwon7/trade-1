@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from strategies import STRATEGIES
@@ -40,9 +40,7 @@ class TournamentController:
             return self.manual_strategy
         if self.locked_strategy:
             return self.locked_strategy
-        started = datetime.fromisoformat(self._control["rotation_started_at"])
-        elapsed = now - started
-        slot = int(elapsed.total_seconds() // (86400 if self.mode == "MODE_A" else 3600))
+        slot = self._rotation_slot(now)
         ids = tuple(STRATEGIES)
         return ids[max(0, slot) % len(ids)]
 
@@ -64,15 +62,21 @@ class TournamentController:
             normalized = "MODE_B"
         if normalized not in {"MODE_A", "MODE_B"}:
             raise ValueError("mode must be MODE_A or MODE_B")
+        now = datetime.now(timezone.utc)
+        boundary = (
+            now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if normalized == "MODE_A" else now.replace(minute=0, second=0, microsecond=0)
+        )
         self._control.update({
             "mode": normalized,
             "manual_strategy": None,
-            "rotation_started_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "rotation_started_at": boundary.isoformat(),
+            "updated_at": now.isoformat(),
         })
         self._write_control()
 
     def status(self) -> dict:
+        now = datetime.now(timezone.utc)
         active = self.active_strategy_id()
         source = "MANUAL" if self.manual_strategy else "LOCKED" if self.locked_strategy else self.mode
         return {
@@ -82,18 +86,45 @@ class TournamentController:
             "mode": self.mode,
             "manual_strategy": self.manual_strategy,
             "locked_strategy": self.locked_strategy,
+            "next_rotation_at": self.next_rotation_at(now).isoformat() if source in {"MODE_A", "MODE_B"} else None,
         }
+
+    def next_rotation_at(self, now: datetime | None = None) -> datetime:
+        now = now or datetime.now(timezone.utc)
+        started = datetime.fromisoformat(self._control["rotation_started_at"])
+        duration = timedelta(days=1) if self.mode == "MODE_A" else timedelta(hours=1)
+        return started + duration * (max(0, self._rotation_slot(now)) + 1)
+
+    def _rotation_slot(self, now: datetime) -> int:
+        started = datetime.fromisoformat(self._control["rotation_started_at"])
+        seconds = 86400 if self.mode == "MODE_A" else 3600
+        return max(0, int((now - started).total_seconds() // seconds))
 
     def _load_control(self) -> dict:
         try:
             data = json.loads(self.control_path.read_text(encoding="utf-8")) if self.control_path.exists() else {}
         except (OSError, json.JSONDecodeError):
             data = {}
-        now = datetime.now(timezone.utc).isoformat()
+        now_value = datetime.now(timezone.utc)
+        boundary = (
+            now_value.replace(hour=0, minute=0, second=0, microsecond=0)
+            if (data.get("mode") or self.default_mode) == "MODE_A"
+            else now_value.replace(minute=0, second=0, microsecond=0)
+        )
+        try:
+            existing = datetime.fromisoformat(data.get("rotation_started_at", ""))
+            boundary = (
+                existing.replace(hour=0, minute=0, second=0, microsecond=0)
+                if (data.get("mode") or self.default_mode) == "MODE_A"
+                else existing.replace(minute=0, second=0, microsecond=0)
+            )
+        except (TypeError, ValueError):
+            pass
+        now = now_value.isoformat()
         control = {
             "mode": data.get("mode") if data.get("mode") in {"MODE_A", "MODE_B"} else self.default_mode,
             "manual_strategy": data.get("manual_strategy") if data.get("manual_strategy") in STRATEGIES else None,
-            "rotation_started_at": data.get("rotation_started_at", now),
+            "rotation_started_at": boundary.isoformat(),
             "updated_at": data.get("updated_at", now),
         }
         self.control_path.parent.mkdir(parents=True, exist_ok=True)

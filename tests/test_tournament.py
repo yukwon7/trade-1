@@ -22,6 +22,13 @@ class ControllerTests(unittest.TestCase):
             controller.set_mode("A")
             self.assertEqual(controller.mode, "MODE_A")
 
+    def test_mode_b_rotates_on_utc_hour_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TournamentController(Path(directory), "MODE_B")
+            controller._control["rotation_started_at"] = "2026-06-22T10:00:00+00:00"
+            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 10, 59, tzinfo=timezone.utc)), "S01")
+            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 11, 0, tzinfo=timezone.utc)), "S02")
+
 
 class TournamentAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

@@ -142,7 +142,8 @@ class TelegramCommandHandler:
             return (
                 "🎯 <b>현재 전략</b>\n"
                 f"{status['active_strategy']} {html.escape(status['strategy_name'])}\n"
-                f"선택 방식: {status['source']} · 모드: {status['mode']}\n\n"
+                f"선택 방식: {status['source']} · 모드: {status['mode']}\n"
+                f"다음 교체: {status['next_rotation_at'] or '-'}\n\n"
                 "변경: /strategy S03\n자동 복귀: /strategy auto"
             )
         if value == "AUTO":
@@ -174,6 +175,7 @@ class TelegramCommandHandler:
             "🤖 <b>trade-1 토너먼트</b>\n"
             f"상태: {state}\n"
             f"전략: {strategy['active_strategy']} {html.escape(strategy['strategy_name'])} ({strategy['source']})\n"
+            f"다음 교체: {strategy['next_rotation_at'] or '-'}\n"
             f"잔고: {self.trader.balance:.2f} USDT\n"
             f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}\n\n"
             f"{self._positions_text(False)}"
