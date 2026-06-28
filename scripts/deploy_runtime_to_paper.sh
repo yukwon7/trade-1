@@ -4,7 +4,6 @@ cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 [[ "$SERVER_ROLE" == "analysis" ]] || { echo "analysis role required" >&2; exit 1; }
 files=()
-[[ -f config/tournament_result.json ]] && files+=(config/tournament_result.json)
 [[ -f config/router_config.json ]] && files+=(config/router_config.json)
 [[ -f config/stress_test_report.json ]] && files+=(config/stress_test_report.json)
 ((${#files[@]})) || exit 0

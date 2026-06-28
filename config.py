@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-TOURNAMENT_SYMBOLS = (
+ROUTER_SYMBOLS = (
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT",
     "XRPUSDT", "DOGEUSDT", "ADAUSDT", "AVAXUSDT",
 )
@@ -33,8 +33,7 @@ class Settings:
     slippage: float = 0.0005
     candle_limit: int = 300
     cycle_seconds: int = 15
-    tournament_mode: str = "MODE_B"
-    symbols: tuple[str, ...] = field(default_factory=lambda: TOURNAMENT_SYMBOLS)
+    symbols: tuple[str, ...] = field(default_factory=lambda: ROUTER_SYMBOLS)
 
     @classmethod
     def from_env(cls, env_file: str | Path | None = None) -> "Settings":
@@ -50,9 +49,6 @@ class Settings:
         chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
         if not token or not chat_id:
             raise ValueError("Telegram credentials must be present in .env")
-        mode = os.getenv("TOURNAMENT_MODE", "MODE_B").strip().upper()
-        if mode not in {"MODE_A", "MODE_B"}:
-            mode = "MODE_B"
         return cls(
             server_role=role,
             project_dir=project_dir,
@@ -74,5 +70,4 @@ class Settings:
             slippage=float(os.getenv("SLIPPAGE", "0.0005")),
             candle_limit=min(500, max(120, int(os.getenv("CANDLE_LIMIT", "300")))),
             cycle_seconds=max(10, int(os.getenv("CYCLE_SECONDS", "15"))),
-            tournament_mode=mode,
         )

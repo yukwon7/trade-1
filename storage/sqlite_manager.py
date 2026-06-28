@@ -62,16 +62,6 @@ CREATE TABLE IF NOT EXISTS strategy_signals (
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS tournament_reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    evaluated_at TEXT NOT NULL,
-    mode TEXT NOT NULL,
-    rankings TEXT NOT NULL,
-    best_strategy TEXT,
-    action TEXT NOT NULL,
-    reason TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
 CREATE INDEX IF NOT EXISTS idx_tournament_trades_strategy ON tournament_trades(strategy_id, exit_time);
 CREATE INDEX IF NOT EXISTS idx_tournament_trades_symbol ON tournament_trades(strategy_id, symbol, exit_time);
 CREATE INDEX IF NOT EXISTS idx_tournament_trades_exit ON tournament_trades(exit_time);

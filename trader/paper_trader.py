@@ -28,7 +28,7 @@ class PaperTrader:
         self.positions = await self.store.open_positions()
         self.balance = self.settings.initial_balance + await self.store.account_pnl()
         logger.info(
-            "tournament account restored: balance=%.2f positions=%d entry_paused=%s",
+            "router account restored: balance=%.2f positions=%d entry_paused=%s",
             self.balance,
             len(self.positions),
             self.entry_paused,

@@ -1,1 +1,1 @@
-"""Tournament analysis commands and metrics."""
+"""Router analysis commands and metrics."""

@@ -9,8 +9,7 @@ from typing import Any
 
 import aiohttp
 
-from analytics.tournament_evaluator import TournamentEvaluator, _metrics, report_text
-from analytics.stress_tester import run_stress_test, summary_text
+from analytics.stress_tester import _metrics, run_stress_test, summary_text
 from strategies import STRATEGIES
 
 logger = logging.getLogger(__name__)
@@ -18,24 +17,59 @@ logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
     {"command": "status", "description": "봇과 현재 전략 상태"},
+    {"command": "s", "description": "단축: 상태"},
     {"command": "router", "description": "차트 라우터 상태"},
+    {"command": "r", "description": "단축: 라우터"},
     {"command": "regime", "description": "심볼별 차트 상태"},
+    {"command": "g", "description": "단축: 차트 상태"},
     {"command": "strategy", "description": "전략 조회·선택·자동 전환"},
+    {"command": "set", "description": "단축: 전략 선택"},
     {"command": "strategies", "description": "전략 카탈로그"},
-    {"command": "mode", "description": "MODE_A 또는 MODE_B 선택"},
-    {"command": "tournament", "description": "현재 토너먼트 리포트"},
-    {"command": "rankings", "description": "전략별 현재 순위"},
+    {"command": "cat", "description": "단축: 전략 카탈로그"},
     {"command": "stress", "description": "실거래 준비 스트레스 테스트"},
+    {"command": "x", "description": "단축: 스트레스 테스트"},
     {"command": "positions", "description": "열린 포지션 상세"},
+    {"command": "p", "description": "단축: 포지션"},
     {"command": "balance", "description": "모의투자 잔고와 증거금"},
+    {"command": "b", "description": "단축: 잔고"},
     {"command": "daily", "description": "오늘 거래 성과"},
+    {"command": "d", "description": "단축: 오늘 성과"},
     {"command": "weekly", "description": "최근 7일 거래 성과"},
+    {"command": "w", "description": "단축: 주간 성과"},
     {"command": "monthly", "description": "최근 30일 거래 성과"},
+    {"command": "m", "description": "단축: 월간 성과"},
     {"command": "trades", "description": "최근 거래 내역"},
+    {"command": "t", "description": "단축: 최근 거래"},
     {"command": "pause", "description": "신규 진입 일시정지"},
+    {"command": "pa", "description": "단축: 일시정지"},
     {"command": "resume", "description": "신규 진입 재개"},
+    {"command": "go", "description": "단축: 재개"},
     {"command": "help", "description": "전체 명령어 안내"},
+    {"command": "h", "description": "단축: 도움말"},
 ]
+
+
+COMMAND_ALIASES = {
+    "h": "help",
+    "menu": "help",
+    "s": "status",
+    "r": "router",
+    "g": "regime",
+    "set": "strategy",
+    "cat": "strategies",
+    "x": "stress",
+    "p": "positions",
+    "pos": "positions",
+    "b": "balance",
+    "bal": "balance",
+    "d": "daily",
+    "w": "weekly",
+    "m": "monthly",
+    "t": "trades",
+    "tr": "trades",
+    "pa": "pause",
+    "go": "resume",
+}
 
 
 class TelegramCommandHandler:
@@ -99,7 +133,10 @@ class TelegramCommandHandler:
             await self.notifier.send(reply[:4000])
 
     async def dispatch(self, command: str, argument: str = "") -> str:
-        if command in {"help", "menu"}:
+        command = COMMAND_ALIASES.get(command, command)
+        if command.startswith("s") and len(command) == 3 and command[1:].isdigit():
+            return self._strategy_command(command.upper())
+        if command in {"help"}:
             return self.help_text()
         if command in {"start", "resume"}:
             await self.trader.set_entry_paused(False)
@@ -115,11 +152,6 @@ class TelegramCommandHandler:
             return self._regime_text(argument)
         if command == "strategies":
             return self._strategies_text()
-        if command == "mode":
-            return self._mode_command(argument)
-        if command in {"tournament", "rankings"}:
-            report = await TournamentEvaluator(self.trader.settings, self.store).evaluate(persist=False)
-            return report_text(report)
         if command == "stress":
             report = await asyncio.to_thread(run_stress_test, self.trader.settings, False)
             return "<pre>" + html.escape(summary_text(report)) + "</pre>"
@@ -154,8 +186,8 @@ class TelegramCommandHandler:
             return (
                 "🎯 <b>현재 전략</b>\n"
                 f"{status['active_strategy']} {html.escape(status['strategy_name'])}\n"
-                f"선택 방식: {status['source']} · 모드: {status['mode']}\n"
-                f"다음 교체: {status['next_rotation_at'] or '-'}\n\n"
+                f"선택 방식: {status['source']}\n"
+                "\n"
                 "변경: /strategy S99\n자동 복귀: /strategy auto"
             )
         if value == "AUTO":
@@ -163,22 +195,13 @@ class TelegramCommandHandler:
             status = self.controller.status()
             return f"🔁 <b>자동 선택 복귀</b>\n현재 {status['active_strategy']} · 방식 {status['source']}"
         if value not in STRATEGIES:
-            return "전략 ID는 S01~S10, S20~S55, S99 중 하나여야 합니다. 예: /strategy S99"
+            return "전략 ID는 S20~S55 또는 S99 중 하나여야 합니다. 예: /strategy S99"
         self.controller.set_manual_strategy(value)
         strategy = STRATEGIES[value]
         return (
             f"🎯 <b>수동 전략 고정</b>\n{value} {html.escape(strategy.name)} · {strategy.leverage}x\n"
             "기존 포지션은 진입 당시 전략으로 청산까지 관리됩니다."
         )
-
-    def _mode_command(self, argument: str) -> str:
-        if not argument:
-            return f"현재 모드: {self.controller.mode}\n변경: /mode A 또는 /mode B"
-        try:
-            self.controller.set_mode(argument)
-        except ValueError:
-            return "모드는 A 또는 B만 가능합니다."
-        return f"🔄 <b>자동 모드 변경</b>\n{self.controller.mode} · 차트 라우터 S99로 자동 운용합니다."
 
     def _status_text(self) -> str:
         strategy = self.controller.status()
@@ -192,7 +215,6 @@ class TelegramCommandHandler:
             "🤖 <b>trade-1 차트 라우터</b>\n"
             f"상태: {state}\n"
             f"전략: {strategy['active_strategy']} {html.escape(strategy['strategy_name'])} ({strategy['source']})\n"
-            f"다음 교체: {strategy['next_rotation_at'] or '-'}\n"
             f"잔고: {self.trader.balance:.2f} USDT\n"
             f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}{routed}\n\n"
             f"{self._positions_text(False)}"
@@ -228,7 +250,7 @@ class TelegramCommandHandler:
     def _config_text(self) -> str:
         settings = self.trader.settings
         return (
-            "⚙️ <b>토너먼트 리스크 설정</b>\n"
+            "⚙️ <b>라우터 리스크 설정</b>\n"
             f"거래당 최대 손실: {settings.risk_per_trade * 100:.1f}% ({self.trader.balance * settings.risk_per_trade:.2f} USDT)\n"
             f"전체 최대 포지션: {settings.max_open_positions}\n"
             f"최대 레버리지: {settings.max_leverage}x\n"
@@ -324,12 +346,10 @@ class TelegramCommandHandler:
     @staticmethod
     def _strategies_text() -> str:
         catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 55]
-        legacy = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and int(key[1:]) <= 10]
         return (
             "🧩 <b>전략 카탈로그</b>\n"
             f"자동 라우터: S99 · {html.escape(STRATEGIES['S99'].name)}\n"
             f"차트 적응 전략: {len(catalog)}개 ({catalog[0]}~{catalog[-1]})\n"
-            f"레거시 전략: {len(legacy)}개 ({legacy[0]}~{legacy[-1]})\n"
             "현재 운영 권장: /strategy S99\n"
             "심볼별 실제 선택 전략: /router 또는 /regime BTCUSDT"
         )
@@ -346,9 +366,9 @@ class TelegramCommandHandler:
     def help_text() -> str:
         return (
             "📚 <b>차트 라우터 명령어</b>\n"
-            "/router — 차트 라우터 상태\n/regime — 심볼별 차트 상태\n/regime BTCUSDT — 특정 심볼 상세\n"
-            "/strategy — 현재 전략\n/strategy S99 — 차트 라우터 선택\n/strategy auto — 자동 복귀\n"
-            "/strategies — 전략 카탈로그\n/tournament /rankings /stress\n"
-            "/status /positions /balance /trades\n/daily /weekly /monthly\n"
-            "/pause /resume\n\n수동 전환 시 기존 포지션은 원래 전략으로 계속 관리됩니다."
+            "/s = /status\n/r = /router\n/g = /regime\n/g BTCUSDT = /regime BTCUSDT\n"
+            "/set S99 = /strategy S99\n/s99 = /strategy S99\n/cat = /strategies\n/x = /stress\n"
+            "/p = /positions\n/b = /balance\n/t = /trades\n/d = /daily\n/w = /weekly\n/m = /monthly\n"
+            "/pa = /pause\n/go = /resume\n/h = /help\n\n"
+            "수동 전환 시 기존 포지션은 원래 전략으로 계속 관리됩니다."
         )

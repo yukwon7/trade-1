@@ -155,30 +155,6 @@ class TradeStore:
             )
         ).fetchall()
 
-    async def insert_report(self, report: dict[str, Any]) -> None:
-        db = await self.manager.connect()
-        await db.execute(
-            """INSERT INTO tournament_reports
-               (evaluated_at,mode,rankings,best_strategy,action,reason,created_at)
-               VALUES (?,?,?,?,?,?,?)""",
-            (
-                report["evaluated_at"], report["mode"], json.dumps(report["rankings"], separators=(",", ":")),
-                report.get("best_strategy"), report["action"], report["reason"], utc_now_iso(),
-            ),
-        )
-        await db.commit()
-
-    async def latest_report(self) -> dict[str, Any] | None:
-        db = await self.manager.connect()
-        row = await (await db.execute("SELECT * FROM tournament_reports ORDER BY id DESC LIMIT 1")).fetchone()
-        if row is None:
-            return None
-        return {
-            "evaluated_at": row["evaluated_at"], "mode": row["mode"],
-            "rankings": json.loads(row["rankings"]), "best_strategy": row["best_strategy"],
-            "action": row["action"], "reason": row["reason"],
-        }
-
     @staticmethod
     def _position(row) -> TournamentPosition:
         return TournamentPosition(

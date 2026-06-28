@@ -16,10 +16,10 @@ from exchange import BinanceFuturesClient
 from notify import TelegramCommandHandler, TelegramNotifier
 from storage import SQLiteManager, TradeStore
 from strategies import get_strategy
-from tournament import TournamentController
+from router import RouterController
 from trader import PaperTrader
 
-logger = logging.getLogger("trade1.tournament")
+logger = logging.getLogger("trade1.router")
 
 
 class CandleCache:
@@ -50,7 +50,7 @@ class PaperApplication:
         manager = SQLiteManager(self.settings.database_path)
         await manager.initialize()
         store = TradeStore(manager)
-        controller = TournamentController(self.settings.config_dir, self.settings.tournament_mode)
+        controller = RouterController(self.settings.config_dir)
         connector = aiohttp.TCPConnector(limit=24, ttl_dns_cache=300)
         async with aiohttp.ClientSession(connector=connector) as session:
             client = BinanceFuturesClient(session, self.settings.binance_base_url, self.settings.binance_api_key)
@@ -111,12 +111,7 @@ class PaperApplication:
             return "ALREADY_PROCESSED"
         self.last_processed[symbol] = latest.open_time
         existing = trader.positions.get(symbol)
-        strategy_ids = {active.strategy_id}
-        if existing:
-            strategy_ids.add(existing.strategy_id)
         context = {}
-        if strategy_ids & {"S04", "S06"}:
-            context = await client.get_market_context(symbol, include_order_book="S04" in strategy_ids)
 
         if existing:
             exit_strategy = get_strategy(existing.strategy_id)

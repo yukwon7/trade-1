@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from analytics.tournament_evaluator import _metrics
 from config import Settings
 
 
@@ -18,9 +17,56 @@ MIN_LIVE_PROFIT_FACTOR = 1.20
 MAX_LIVE_DRAWDOWN = 0.10
 
 
-def _as_float(row: dict, key: str, default: float = 0.0) -> float:
-    value = row.get(key, default)
+def _value(row, key: str, default=None):
+    if hasattr(row, "get"):
+        return row.get(key, default)
+    try:
+        return row[key]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+def _as_float(row, key: str, default: float = 0.0) -> float:
+    value = _value(row, key, default)
     return float(value) if value is not None else default
+
+
+def _metrics(rows: Iterable[dict], initial_balance: float) -> dict:
+    rows = list(rows)
+    pnls = [_as_float(row, "pnl") for row in rows]
+    returns = [_as_float(row, "return_pct") for row in rows]
+    wins = [value for value in pnls if value > 0]
+    losses = [value for value in pnls if value < 0]
+    gross_loss = abs(sum(losses))
+    profit_factor = sum(wins) / gross_loss if gross_loss else (10.0 if wins else 0.0)
+    equity = peak = initial_balance
+    max_drawdown = 0.0
+    for pnl in pnls:
+        equity += pnl
+        peak = max(peak, equity)
+        if peak > 0:
+            max_drawdown = max(max_drawdown, (peak - equity) / peak)
+    sharpe = 0.0
+    if len(returns) >= 2:
+        deviation = statistics.pstdev(returns)
+        sharpe = statistics.mean(returns) / deviation if deviation > 0 else 0.0
+    return {
+        "net_pnl": sum(pnls),
+        "win_rate": len(wins) / len(rows) if rows else 0.0,
+        "profit_factor": profit_factor,
+        "max_drawdown": max_drawdown,
+        "sharpe_ratio": sharpe,
+        "trade_count": len(rows),
+    }
+
+
+def _is_router_trade(row) -> bool:
+    strategy_id = str(_value(row, "strategy_id", ""))
+    return (
+        strategy_id.startswith("S")
+        and strategy_id[1:].isdigit()
+        and 20 <= int(strategy_id[1:]) <= 55
+    )
 
 
 def _load_rows(database_path: Path) -> list[dict]:
@@ -85,19 +131,14 @@ def _passes(metrics: dict) -> bool:
 
 
 def _recommend_config(rows: list[dict]) -> dict:
-    strategy_metrics = _group_metrics(rows, "strategy_id")
-    router_rows = [
-        row for row in rows
-        if str(row.get("strategy_id", "")).startswith("S")
-        and str(row.get("strategy_id", ""))[1:].isdigit()
-        and 20 <= int(str(row.get("strategy_id"))[1:]) <= 55
-    ]
+    router_rows = [row for row in rows if _is_router_trade(row)]
+    strategy_metrics = _group_metrics(router_rows, "strategy_id")
     symbol_metrics = _group_metrics(router_rows, "symbol")
     excluded = {
         strategy_id for strategy_id, metrics in strategy_metrics.items()
         if metrics["trade_count"] >= 10 and (metrics["profit_factor"] < 0.75 or metrics["net_pnl"] < -25)
     }
-    excluded.update({"S04", "S06", "S99"})
+    excluded.add("S99")
     symbol_blacklist = {
         symbol for symbol, metrics in symbol_metrics.items()
         if metrics["trade_count"] >= 10 and (metrics["profit_factor"] < 0.50 or metrics["net_pnl"] < -20)
@@ -125,8 +166,9 @@ def _recommend_config(rows: list[dict]) -> dict:
 
 def run_stress_test(settings: Settings, persist: bool = True) -> dict:
     rows = _load_rows(settings.database_path)
+    router_rows = [row for row in rows if _is_router_trade(row)]
     config = _recommend_config(rows)
-    candidate = _candidate_rows(rows, set(config["excluded_strategies"]), set(config["symbol_blacklist"]))
+    candidate = _candidate_rows(router_rows, set(config["excluded_strategies"]), set(config["symbol_blacklist"]))
     scenarios = {}
     for name in ("baseline", "fee_slippage_2x", "pnl_haircut_25", "remove_top_10pct_winners", "loss_cluster"):
         scenarios[name] = _metrics(_scenario_rows(candidate, name), settings.initial_balance)
@@ -135,6 +177,7 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "trade_count": len(rows),
+        "router_trade_count": len(router_rows),
         "candidate_trade_count": len(candidate),
         "live_ready": live_ready,
         "decision": "LOCK_S99" if live_ready else "PAPER_ONLY",
@@ -144,8 +187,9 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
         ),
         "observed": {
             "overall": _metrics(rows, settings.initial_balance),
-            "by_strategy": _group_metrics(rows, "strategy_id"),
-            "by_symbol": _group_metrics(rows, "symbol"),
+            "router": _metrics(router_rows, settings.initial_balance),
+            "by_strategy": _group_metrics(router_rows, "strategy_id"),
+            "by_symbol": _group_metrics(router_rows, "symbol"),
             "pnl_stddev": statistics.pstdev(pnl_values) if len(pnl_values) >= 2 else 0.0,
         },
         "router_config": config,
@@ -165,21 +209,6 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
         (settings.config_dir / "stress_test_report.json").write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-        result_path = settings.config_dir / "tournament_result.json"
-        result_path.write_text(
-            json.dumps({
-                "locked_strategy": "S99" if live_ready else None,
-                "locked_at": report["generated_at"] if live_ready else None,
-                "last_evaluated_at": report["generated_at"],
-                "best_strategy": "S99" if live_ready else None,
-                "action": "LOCK" if live_ready else "CONTINUE_EVALUATION",
-                "reason": (
-                    "chart router passed stress test"
-                    if live_ready else "stress test failed; locked strategy cleared"
-                ),
-            }, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
     return report
 
 
@@ -197,6 +226,7 @@ def summary_text(report: dict) -> str:
         f"live_ready: {report['live_ready']}",
         f"reason: {report['reason']}",
         f"total_trades: {report['trade_count']}",
+        f"router_trades: {report['router_trade_count']}",
         f"candidate_trades: {report['candidate_trade_count']}",
         *scenario_lines,
     ])

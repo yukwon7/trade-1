@@ -14,7 +14,7 @@ target.close(); source.close()
 PY
 rsync -az --chmod=F600 -e "ssh -i $RSYNC_SSH_KEY -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
   data/sync/trades.db "$RSYNC_USER@$ANALYSIS_HOST:/opt/trade-1/data/trades.db"
-if [[ -f config/tournament_control.json ]]; then
+if [[ -f config/router_control.json ]]; then
   rsync -az --chmod=F640 -e "ssh -i $RSYNC_SSH_KEY -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
-    config/tournament_control.json "$RSYNC_USER@$ANALYSIS_HOST:/opt/trade-1/config/tournament_control.json"
+    config/router_control.json "$RSYNC_USER@$ANALYSIS_HOST:/opt/trade-1/config/router_control.json"
 fi

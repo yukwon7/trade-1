@@ -31,7 +31,7 @@ class TelegramNotifier:
 
     async def startup(self, role: str, symbols: int, strategy: str = "") -> None:
         strategy_line = f"\n전략: {html.escape(strategy)}" if strategy else ""
-        await self.send(f"🤖 <b>trade-1 토너먼트 시작</b>\n역할: {html.escape(role)}\n모니터링: {symbols}개{strategy_line}")
+        await self.send(f"🤖 <b>trade-1 차트 라우터 시작</b>\n역할: {html.escape(role)}\n모니터링: {symbols}개{strategy_line}")
 
     async def entry(self, position, reason: str = "") -> None:
         await self.send(
