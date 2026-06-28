@@ -30,6 +30,21 @@ Server A runs Hermes analysis:
 scripts/run_analysis_cycle.sh
 ```
 
+Optional AI orchestration is Server-A-only. If no AI key is configured, Hermes runs deterministic rules only.
+
+Supported `.env` variables:
+
+```bash
+HERMES_AI_PROVIDER=deepseek   # or openai
+DEEPSEEK_API_KEY=...
+DEEPSEEK_MODEL=deepseek-chat
+# or
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+Server B never imports or calls the AI client.
+
 Analysis writes:
 
 - `config/strategy_config.json`

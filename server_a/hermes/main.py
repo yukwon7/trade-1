@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 
 from config import Settings
 from server_a.hermes.cache import JsonCache
+from server_a.hermes.gate import deployment_gate
+from server_a.hermes.orchestrator import apply_ai_suggestion
 from server_a.hermes.router import build_decision
 
 
-def run_hermes_cycle(settings: Settings | None = None, persist: bool = True) -> dict:
+def run_hermes_cycle(settings: Settings | None = None, persist: bool = True, use_ai: bool = True) -> dict:
+    return asyncio.run(run_hermes_cycle_async(settings, persist, use_ai))
+
+
+async def run_hermes_cycle_async(settings: Settings | None = None, persist: bool = True, use_ai: bool = True) -> dict:
     settings = settings or Settings.from_env()
     result = build_decision(settings, current_strategy_ids=_current_strategy_ids(settings.config_dir))
+    if use_ai:
+        result = await apply_ai_suggestion(result)
+        allowed, gate_reason = deployment_gate(result["decision"])
+        result["deployable"] = allowed
+        result["gate_reason"] = gate_reason
+    else:
+        result["ai"] = {"enabled": False, "provider": "none", "used": False, "reason": "disabled by flag"}
     generated_at = datetime.now(timezone.utc).isoformat()
     report = {
         "generated_at": generated_at,
@@ -59,6 +73,7 @@ def _summary(report: dict) -> str:
         f"generated_at: {report['generated_at']}",
         f"action: {decision['action']}",
         f"deployable: {report['deployable']} ({report['gate_reason']})",
+        f"ai: {report.get('ai', {}).get('provider', 'none')} used={report.get('ai', {}).get('used', False)}",
         f"reason: {decision['reason']}",
         f"trade_count: {performance['trade_count']}",
         f"net_pnl: {performance['net_pnl']:+.2f}",
@@ -71,8 +86,9 @@ def _summary(report: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-persist", action="store_true")
+    parser.add_argument("--no-ai", action="store_true")
     args = parser.parse_args()
-    report = run_hermes_cycle(persist=not args.no_persist)
+    report = run_hermes_cycle(persist=not args.no_persist, use_ai=not args.no_ai)
     print(report["summary"])
 
 

@@ -7,3 +7,4 @@
 - [AUTONOMOUS] Deployment needed rollback path -> added config-only deploy and rollback scripts with remote backups.
 - [AUTONOMOUS] Hermes must not trade directly -> added Server A Hermes cycle that only writes config/report JSON.
 - [AUTONOMOUS] Existing open positions must be preserved -> runtime risk updates affect only new entries and position management remains unchanged.
+- [AUTONOMOUS] User requested AI orchestrator -> added optional Server-A-only AI suggestion layer with rule/gate fallback and risk clamps.

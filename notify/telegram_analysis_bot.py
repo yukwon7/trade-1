@@ -9,7 +9,7 @@ import aiohttp
 
 from analytics.router_backtester import run_backtest
 from analytics.stress_tester import run_stress_test, summary_text
-from server_a.hermes.main import run_hermes_cycle
+from server_a.hermes.main import run_hermes_cycle_async
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ class TelegramAnalysisCommandHandler:
         if command in {"start", "help", "hermes_status"}:
             return self.status_text()
         if command in {"analyze", "decision", "strategies"}:
-            report = await asyncio.to_thread(run_hermes_cycle, self.settings, False)
+            report = await run_hermes_cycle_async(self.settings, False)
             return "<pre>" + html.escape(report["summary"]) + "</pre>"
         if command == "stress":
             report = await asyncio.to_thread(run_stress_test, self.settings, False)
@@ -106,7 +106,7 @@ class TelegramAnalysisCommandHandler:
                 f"allowed={report['allowed_strategies']}</pre>"
             )
         if command in {"daily", "weekly", "monthly"}:
-            report = await asyncio.to_thread(run_hermes_cycle, self.settings, False)
+            report = await run_hermes_cycle_async(self.settings, False)
             return "<pre>" + html.escape(report["summary"]) + "</pre>"
         if command == "deploy_config":
             return "배포는 안전상 scripts/deploy_server_b_config_only.sh 로 실행하세요."
