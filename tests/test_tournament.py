@@ -50,7 +50,7 @@ class TournamentAsyncTests(unittest.IsolatedAsyncioTestCase):
         signal = StrategySignal("S02", "EMA_CROSS_FAST", "BTCUSDT", "LONG", 100, 7, 0.012, None, "test")
         position = await trader.open(signal)
         self.assertIsNotNone(position)
-        self.assertLessEqual(position.margin, trader.balance / 4)
+        self.assertLessEqual(position.margin, trader.balance / self.settings.max_open_positions)
         await trader.process_tick("BTCUSDT", position.stop_price)
         self.assertNotIn("BTCUSDT", trader.positions)
         rows = await self.store.strategy_rows("S02")

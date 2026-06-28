@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from strategies import STRATEGIES
+from strategies import STRATEGIES, STRATEGY_ROTATION_IDS
 
 
 class TournamentController:
@@ -41,7 +41,7 @@ class TournamentController:
         if self.locked_strategy:
             return self.locked_strategy
         slot = self._rotation_slot(now)
-        ids = tuple(STRATEGIES)
+        ids = STRATEGY_ROTATION_IDS
         return ids[max(0, slot) % len(ids)]
 
     def active_strategy(self, now: datetime | None = None):
@@ -51,7 +51,7 @@ class TournamentController:
         if strategy_id is not None:
             strategy_id = strategy_id.upper()
             if strategy_id not in STRATEGIES:
-                raise ValueError("strategy must be S01 through S10")
+                raise ValueError("strategy must be S01 through S10 or S99")
         self._control["manual_strategy"] = strategy_id
         self._control["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._write_control()

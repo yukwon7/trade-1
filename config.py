@@ -26,9 +26,9 @@ class Settings:
     telegram_bot_token: str
     telegram_chat_id: str
     initial_balance: float = 1000.0
-    risk_per_trade: float = 0.02
-    max_open_positions: int = 4
-    max_leverage: int = 10
+    risk_per_trade: float = 0.01
+    max_open_positions: int = 3
+    max_leverage: int = 3
     fee_rate: float = 0.0004
     slippage: float = 0.0005
     candle_limit: int = 300
@@ -65,11 +65,11 @@ class Settings:
             telegram_bot_token=token,
             telegram_chat_id=chat_id,
             initial_balance=float(os.getenv("INITIAL_BALANCE", "1000")),
-            # Tournament safety limits are code-enforced so stale values in the
-            # preserved .env cannot silently weaken the new rules.
-            risk_per_trade=0.02,
-            max_open_positions=4,
-            max_leverage=10,
+            # Safety limits are code-enforced so stale values in the preserved
+            # .env cannot silently weaken the current paper-live rules.
+            risk_per_trade=0.01,
+            max_open_positions=3,
+            max_leverage=3,
             fee_rate=float(os.getenv("FEE_RATE", "0.0004")),
             slippage=float(os.getenv("SLIPPAGE", "0.0005")),
             candle_limit=min(500, max(120, int(os.getenv("CANDLE_LIMIT", "300")))),

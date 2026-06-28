@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 
 from analytics.tournament_evaluator import TournamentEvaluator, _metrics, report_text
+from analytics.stress_tester import run_stress_test, summary_text
 from strategies import STRATEGIES
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ BOT_COMMANDS = [
     {"command": "mode", "description": "MODE_A 또는 MODE_B 선택"},
     {"command": "tournament", "description": "현재 토너먼트 리포트"},
     {"command": "rankings", "description": "전략별 현재 순위"},
+    {"command": "stress", "description": "실거래 준비 스트레스 테스트"},
     {"command": "positions", "description": "열린 포지션 상세"},
     {"command": "balance", "description": "모의투자 잔고와 증거금"},
     {"command": "daily", "description": "오늘 거래 성과"},
@@ -111,6 +113,9 @@ class TelegramCommandHandler:
         if command in {"tournament", "rankings"}:
             report = await TournamentEvaluator(self.trader.settings, self.store).evaluate(persist=False)
             return report_text(report)
+        if command == "stress":
+            report = await asyncio.to_thread(run_stress_test, self.trader.settings, False)
+            return "<pre>" + html.escape(summary_text(report)) + "</pre>"
         if command == "status":
             return self._status_text()
         if command == "positions":
@@ -151,7 +156,7 @@ class TelegramCommandHandler:
             status = self.controller.status()
             return f"🔁 <b>자동 선택 복귀</b>\n현재 {status['active_strategy']} · 방식 {status['source']}"
         if value not in STRATEGIES:
-            return "전략 ID는 S01~S10 중 하나여야 합니다. 예: /strategy S07"
+            return "전략 ID는 S01~S10 또는 S99 중 하나여야 합니다. 예: /strategy S99"
         self.controller.set_manual_strategy(value)
         strategy = STRATEGIES[value]
         return (
@@ -264,7 +269,7 @@ class TelegramCommandHandler:
         return (
             "📚 <b>토너먼트 명령어</b>\n"
             "/strategy — 현재 전략\n/strategy S01 — 수동 전략 선택\n/strategy auto — 자동 선택 복귀\n"
-            "/strategies — 전략 목록\n/mode A 또는 /mode B\n/tournament /rankings\n"
+            "/strategies — 전략 목록\n/mode A 또는 /mode B\n/tournament /rankings /stress\n"
             "/status /positions /balance /trades\n/daily /weekly /monthly\n"
             "/pause /resume\n\n수동 전환 시 기존 포지션은 원래 전략으로 계속 관리됩니다."
         )
