@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from server_a.hermes.clients.ai_client import AIClientConfig, HermesAIClient
 from server_a.hermes.gate import deployment_gate
@@ -17,6 +18,18 @@ class FakeAIClient(HermesAIClient):
 
 
 class HermesAITests(unittest.IsolatedAsyncioTestCase):
+    def test_nvidia_provider_reads_env(self):
+        with patch.dict("os.environ", {
+            "HERMES_AI_PROVIDER": "nvidia",
+            "NVIDIA_API_KEY": "test-key",
+            "NVIDIA_MODEL": "nvidia/test-model",
+        }, clear=False):
+            client = HermesAIClient.from_env()
+        self.assertTrue(client.config.enabled)
+        self.assertEqual(client.config.provider, "nvidia")
+        self.assertEqual(client.config.base_url, "https://integrate.api.nvidia.com/v1")
+        self.assertEqual(client.config.model, "nvidia/test-model")
+
     async def test_no_provider_keeps_rule_based_decision(self):
         report = {
             "performance": {},

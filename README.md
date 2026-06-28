@@ -35,12 +35,16 @@ Optional AI orchestration is Server-A-only. If no AI key is configured, Hermes r
 Supported `.env` variables:
 
 ```bash
-HERMES_AI_PROVIDER=deepseek   # or openai
+HERMES_AI_PROVIDER=deepseek   # or openai, nvidia
 DEEPSEEK_API_KEY=...
 DEEPSEEK_MODEL=deepseek-chat
 # or
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-mini
+# or
+NVIDIA_API_KEY=...
+NVIDIA_MODEL=deepseek-ai/deepseek-r1
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 ```
 
 Server B never imports or calls the AI client.

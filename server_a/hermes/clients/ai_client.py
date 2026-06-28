@@ -53,6 +53,13 @@ class HermesAIClient:
                 base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
                 model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip(),
             ))
+        if provider in {"nvidia", "nim", "nvidia_nim"}:
+            return cls(AIClientConfig(
+                provider="nvidia",
+                api_key=os.getenv("NVIDIA_API_KEY", "").strip() or os.getenv("NIM_API_KEY", "").strip(),
+                base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/"),
+                model=os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1").strip(),
+            ))
         return cls(AIClientConfig(provider="", api_key="", base_url="", model=""))
 
     async def suggest(self, payload: dict[str, Any]) -> dict[str, Any] | None:
