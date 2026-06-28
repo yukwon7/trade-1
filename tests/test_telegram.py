@@ -32,7 +32,7 @@ class TelegramTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("S03", reply)
         self.assertEqual(self.controller.active_strategy_id(), "S03")
         await self.handler.dispatch("strategy", "auto")
-        self.assertEqual(self.controller.active_strategy_id(), "S01")
+        self.assertEqual(self.controller.active_strategy_id(), "S99")
 
     async def test_unauthorized_chat_is_ignored(self):
         await self.handler.handle_update({"message": {"chat": {"id": 999}, "text": "/status"}})

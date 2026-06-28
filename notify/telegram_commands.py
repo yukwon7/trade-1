@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -17,8 +18,10 @@ logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
     {"command": "status", "description": "봇과 현재 전략 상태"},
+    {"command": "router", "description": "차트 라우터 상태"},
+    {"command": "regime", "description": "심볼별 차트 상태"},
     {"command": "strategy", "description": "전략 조회·선택·자동 전환"},
-    {"command": "strategies", "description": "10개 전략 목록"},
+    {"command": "strategies", "description": "전략 카탈로그"},
     {"command": "mode", "description": "MODE_A 또는 MODE_B 선택"},
     {"command": "tournament", "description": "현재 토너먼트 리포트"},
     {"command": "rankings", "description": "전략별 현재 순위"},
@@ -106,6 +109,10 @@ class TelegramCommandHandler:
             return "⏸ <b>신규 진입 중지</b>\n열린 포지션의 청산 관리는 계속됩니다."
         if command == "strategy":
             return self._strategy_command(argument)
+        if command == "router":
+            return self._router_text()
+        if command == "regime":
+            return self._regime_text(argument)
         if command == "strategies":
             return self._strategies_text()
         if command == "mode":
@@ -149,14 +156,14 @@ class TelegramCommandHandler:
                 f"{status['active_strategy']} {html.escape(status['strategy_name'])}\n"
                 f"선택 방식: {status['source']} · 모드: {status['mode']}\n"
                 f"다음 교체: {status['next_rotation_at'] or '-'}\n\n"
-                "변경: /strategy S03\n자동 복귀: /strategy auto"
+                "변경: /strategy S99\n자동 복귀: /strategy auto"
             )
         if value == "AUTO":
             self.controller.set_manual_strategy(None)
             status = self.controller.status()
             return f"🔁 <b>자동 선택 복귀</b>\n현재 {status['active_strategy']} · 방식 {status['source']}"
         if value not in STRATEGIES:
-            return "전략 ID는 S01~S10 또는 S99 중 하나여야 합니다. 예: /strategy S99"
+            return "전략 ID는 S01~S10, S20~S55, S99 중 하나여야 합니다. 예: /strategy S99"
         self.controller.set_manual_strategy(value)
         strategy = STRATEGIES[value]
         return (
@@ -171,18 +178,23 @@ class TelegramCommandHandler:
             self.controller.set_mode(argument)
         except ValueError:
             return "모드는 A 또는 B만 가능합니다."
-        return f"🔄 <b>토너먼트 모드 변경</b>\n{self.controller.mode} · S01부터 자동 로테이션을 재시작합니다."
+        return f"🔄 <b>자동 모드 변경</b>\n{self.controller.mode} · 차트 라우터 S99로 자동 운용합니다."
 
     def _status_text(self) -> str:
         strategy = self.controller.status()
         state = "신규 진입 중지" if self.trader.entry_paused else "정상 실행"
+        router = self._read_router_snapshot()
+        routed = ""
+        if router:
+            selected = sum(1 for item in router.get("decisions", {}).values() if item.get("selected_strategy"))
+            routed = f"\n라우터: {selected}개 심볼 후보 선택 · /router"
         return (
-            "🤖 <b>trade-1 토너먼트</b>\n"
+            "🤖 <b>trade-1 차트 라우터</b>\n"
             f"상태: {state}\n"
             f"전략: {strategy['active_strategy']} {html.escape(strategy['strategy_name'])} ({strategy['source']})\n"
             f"다음 교체: {strategy['next_rotation_at'] or '-'}\n"
             f"잔고: {self.trader.balance:.2f} USDT\n"
-            f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}\n\n"
+            f"포지션: {len(self.trader.positions)} / {self.trader.settings.max_open_positions}{routed}\n\n"
             f"{self._positions_text(False)}"
         )
 
@@ -258,18 +270,85 @@ class TelegramCommandHandler:
             f"MDD {metrics['max_drawdown']*100:.2f}% · Sharpe {metrics['sharpe_ratio']:.2f}"
         )
 
+    def _router_text(self) -> str:
+        snapshot = self._read_router_snapshot()
+        if not snapshot:
+            return "🧭 <b>차트 라우터</b>\n아직 라우터 스냅샷이 없습니다. 다음 5분봉 사이클 이후 다시 확인하세요."
+        decisions = snapshot.get("decisions", {})
+        lines = [
+            "🧭 <b>차트 라우터</b>",
+            f"업데이트: {html.escape(str(snapshot.get('updated_at', '-')))}",
+            f"결과: {html.escape(str(snapshot.get('outcomes', {})))}",
+            f"포지션: {snapshot.get('open_positions', 0)}",
+        ]
+        for symbol, item in sorted(decisions.items()):
+            selected = item.get("selected_strategy") or "-"
+            lines.append(
+                f"{symbol}: {item.get('regime')} · {item.get('bias')} · "
+                f"{item.get('outcome')} · {selected}"
+            )
+        return "\n".join(lines)
+
+    def _regime_text(self, argument: str = "") -> str:
+        snapshot = self._read_router_snapshot()
+        if not snapshot:
+            return "📉 <b>차트 상태</b>\n아직 분석 스냅샷이 없습니다."
+        decisions = snapshot.get("decisions", {})
+        symbol = argument.strip().upper()
+        if symbol:
+            item = decisions.get(symbol)
+            if not item:
+                return f"📉 <b>{html.escape(symbol)}</b>\n최근 라우터 분석 기록이 없습니다."
+            return self._format_regime(symbol, item)
+        return "📉 <b>심볼별 차트 상태</b>\n" + "\n".join(
+            f"{symbol}: {item.get('regime')} · {item.get('bias')} · {', '.join(item.get('tags', [])) or '-'}"
+            for symbol, item in sorted(decisions.items())
+        )
+
+    @staticmethod
+    def _format_regime(symbol: str, item: dict[str, Any]) -> str:
+        top = item.get("top_candidates") or []
+        candidates = "\n".join(
+            f"{candidate['strategy_id']} {html.escape(candidate['name'])} {candidate['direction']} {candidate['score']}"
+            for candidate in top
+        ) or "-"
+        return (
+            f"📉 <b>{html.escape(symbol)} 차트 상태</b>\n"
+            f"레짐: {item.get('regime')} · 바이어스: {item.get('bias')}\n"
+            f"추세: {item.get('trend')} · 변동성: {item.get('volatility')} · 거래량: {item.get('volume')}\n"
+            f"태그: {', '.join(item.get('tags', [])) or '-'}\n"
+            f"선택: {item.get('selected_strategy') or '-'} {html.escape(str(item.get('selected_name') or ''))}\n"
+            f"후보:\n{candidates}"
+        )
+
     @staticmethod
     def _strategies_text() -> str:
-        return "🧩 <b>등록 전략</b>\n" + "\n".join(
-            f"{key} · {html.escape(strategy.name)} · {strategy.leverage}x" for key, strategy in STRATEGIES.items()
+        catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 55]
+        legacy = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and int(key[1:]) <= 10]
+        return (
+            "🧩 <b>전략 카탈로그</b>\n"
+            f"자동 라우터: S99 · {html.escape(STRATEGIES['S99'].name)}\n"
+            f"차트 적응 전략: {len(catalog)}개 ({catalog[0]}~{catalog[-1]})\n"
+            f"레거시 전략: {len(legacy)}개 ({legacy[0]}~{legacy[-1]})\n"
+            "현재 운영 권장: /strategy S99\n"
+            "심볼별 실제 선택 전략: /router 또는 /regime BTCUSDT"
         )
+
+    def _read_router_snapshot(self) -> dict[str, Any]:
+        path = self.trader.settings.config_dir / "router_snapshot.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+            return data if isinstance(data, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
 
     @staticmethod
     def help_text() -> str:
         return (
-            "📚 <b>토너먼트 명령어</b>\n"
-            "/strategy — 현재 전략\n/strategy S01 — 수동 전략 선택\n/strategy auto — 자동 선택 복귀\n"
-            "/strategies — 전략 목록\n/mode A 또는 /mode B\n/tournament /rankings /stress\n"
+            "📚 <b>차트 라우터 명령어</b>\n"
+            "/router — 차트 라우터 상태\n/regime — 심볼별 차트 상태\n/regime BTCUSDT — 특정 심볼 상세\n"
+            "/strategy — 현재 전략\n/strategy S99 — 차트 라우터 선택\n/strategy auto — 자동 복귀\n"
+            "/strategies — 전략 카탈로그\n/tournament /rankings /stress\n"
             "/status /positions /balance /trades\n/daily /weekly /monthly\n"
             "/pause /resume\n\n수동 전환 시 기존 포지션은 원래 전략으로 계속 관리됩니다."
         )

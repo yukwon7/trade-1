@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from datetime import datetime, timezone
+import json
 import logging
 import signal as os_signal
 import sys
@@ -96,6 +98,7 @@ class PaperApplication:
                 dict(outcomes),
                 len(trader.positions),
             )
+            self._write_router_snapshot(active, outcomes, trader)
             elapsed = time.monotonic() - started
             await asyncio.sleep(max(5.0, self._seconds_to_next_five_minute() - elapsed))
 
@@ -144,6 +147,21 @@ class PaperApplication:
     def _seconds_to_next_five_minute() -> float:
         now = time.time()
         return 300 - (now % 300) + 3
+
+    def _write_router_snapshot(self, active, outcomes, trader) -> None:
+        snapshot = active.snapshot() if hasattr(active, "snapshot") else {}
+        if not snapshot:
+            return
+        payload = {
+            **snapshot,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "outcomes": dict(outcomes),
+            "open_positions": len(trader.positions),
+        }
+        path = self.settings.config_dir / "router_snapshot.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        temporary.replace(path)
 
 
 def setup_logging() -> None:

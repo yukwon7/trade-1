@@ -7,6 +7,8 @@ data/
 logs/
 config/paper_state.json
 config/adaptive_ensemble.json
+config/router_config.json
+config/router_snapshot.json
 config/stress_test_report.json
 config/tournament_control.json
 config/tournament_result.json

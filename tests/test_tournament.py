@@ -18,7 +18,7 @@ class ControllerTests(unittest.TestCase):
             controller.set_manual_strategy("S07")
             self.assertEqual(controller.active_strategy_id(), "S07")
             controller.set_manual_strategy(None)
-            self.assertEqual(controller.active_strategy_id(), "S01")
+            self.assertEqual(controller.active_strategy_id(), "S99")
             controller.set_mode("A")
             self.assertEqual(controller.mode, "MODE_A")
 
@@ -26,8 +26,8 @@ class ControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = TournamentController(Path(directory), "MODE_B")
             controller._control["rotation_started_at"] = "2026-06-22T10:00:00+00:00"
-            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 10, 59, tzinfo=timezone.utc)), "S01")
-            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 11, 0, tzinfo=timezone.utc)), "S02")
+            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 10, 59, tzinfo=timezone.utc)), "S99")
+            self.assertEqual(controller.active_strategy_id(datetime(2026, 6, 22, 11, 0, tzinfo=timezone.utc)), "S99")
 
 
 class TournamentAsyncTests(unittest.IsolatedAsyncioTestCase):

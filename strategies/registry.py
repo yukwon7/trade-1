@@ -10,10 +10,10 @@ from strategies.s07_breakout_volume import BreakoutVolumeStrategy
 from strategies.s08_mean_reversion_bb import MeanReversionBbStrategy
 from strategies.s09_ichimoku_cloud import IchimokuCloudStrategy
 from strategies.s10_vwap_revert import VwapRevertStrategy
-from strategies.s99_adaptive_ensemble import AdaptiveEnsembleStrategy
+from strategies.market_router import ChartAdaptiveRouterStrategy, build_catalog_strategies
 
 
-STRATEGIES = {
+LEGACY_STRATEGIES = {
     strategy.strategy_id: strategy
     for strategy in (
         HARsiVsaStrategy(), EmaCrossFastStrategy(), MacdBbSqueezeStrategy(),
@@ -23,9 +23,16 @@ STRATEGIES = {
     )
 }
 
-STRATEGY_ROTATION_IDS = tuple(key for key in STRATEGIES if key != "S99")
+CATALOG_STRATEGIES = build_catalog_strategies()
 
-STRATEGIES["S99"] = AdaptiveEnsembleStrategy()
+STRATEGIES = {
+    **LEGACY_STRATEGIES,
+    **{strategy.strategy_id: strategy for strategy in CATALOG_STRATEGIES},
+}
+
+STRATEGIES["S99"] = ChartAdaptiveRouterStrategy(CATALOG_STRATEGIES)
+
+STRATEGY_ROTATION_IDS = ("S99",)
 
 
 def get_strategy(strategy_id: str):

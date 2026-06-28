@@ -51,7 +51,7 @@ class TournamentController:
         if strategy_id is not None:
             strategy_id = strategy_id.upper()
             if strategy_id not in STRATEGIES:
-                raise ValueError("strategy must be S01 through S10 or S99")
+                raise ValueError("unknown strategy id")
         self._control["manual_strategy"] = strategy_id
         self._control["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._write_control()

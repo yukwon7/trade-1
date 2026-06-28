@@ -86,7 +86,13 @@ def _passes(metrics: dict) -> bool:
 
 def _recommend_config(rows: list[dict]) -> dict:
     strategy_metrics = _group_metrics(rows, "strategy_id")
-    symbol_metrics = _group_metrics(rows, "symbol")
+    router_rows = [
+        row for row in rows
+        if str(row.get("strategy_id", "")).startswith("S")
+        and str(row.get("strategy_id", ""))[1:].isdigit()
+        and 20 <= int(str(row.get("strategy_id"))[1:]) <= 55
+    ]
+    symbol_metrics = _group_metrics(router_rows, "symbol")
     excluded = {
         strategy_id for strategy_id, metrics in strategy_metrics.items()
         if metrics["trade_count"] >= 10 and (metrics["profit_factor"] < 0.75 or metrics["net_pnl"] < -25)
@@ -96,10 +102,9 @@ def _recommend_config(rows: list[dict]) -> dict:
         symbol for symbol, metrics in symbol_metrics.items()
         if metrics["trade_count"] >= 10 and (metrics["profit_factor"] < 0.50 or metrics["net_pnl"] < -20)
     }
-    allowed = [item for item in ("S01", "S02", "S03", "S08", "S09", "S10") if item not in excluded]
     blocked_pairs = []
     grouped: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
-    for row in rows:
+    for row in router_rows:
         grouped[(row["strategy_id"], row["symbol"], row["direction"])].append(row)
     for (strategy_id, symbol, direction), items in grouped.items():
         metrics = _metrics(items, 1000.0)
@@ -107,8 +112,8 @@ def _recommend_config(rows: list[dict]) -> dict:
             blocked_pairs.append(f"{strategy_id}:{symbol}:{direction}")
     return {
         "strategy_id": "S99",
-        "minimum_votes": 2,
-        "allowed_strategies": allowed,
+        "minimum_score": 70,
+        "allowed_strategies": [],
         "excluded_strategies": sorted(excluded),
         "symbol_blacklist": sorted(symbol_blacklist),
         "blocked_pairs": sorted(blocked_pairs),
@@ -143,7 +148,7 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
             "by_symbol": _group_metrics(rows, "symbol"),
             "pnl_stddev": statistics.pstdev(pnl_values) if len(pnl_values) >= 2 else 0.0,
         },
-        "adaptive_config": config,
+        "router_config": config,
         "scenarios": scenarios,
         "criteria": {
             "min_trades": MIN_LIVE_TRADES,
@@ -154,7 +159,7 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
     }
     if persist:
         settings.config_dir.mkdir(parents=True, exist_ok=True)
-        (settings.config_dir / "adaptive_ensemble.json").write_text(
+        (settings.config_dir / "router_config.json").write_text(
             json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
         (settings.config_dir / "stress_test_report.json").write_text(
@@ -169,7 +174,7 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
                 "best_strategy": "S99" if live_ready else None,
                 "action": "LOCK" if live_ready else "CONTINUE_EVALUATION",
                 "reason": (
-                    "adaptive ensemble passed stress test"
+                    "chart router passed stress test"
                     if live_ready else "stress test failed; locked strategy cleared"
                 ),
             }, indent=2, ensure_ascii=False) + "\n",
