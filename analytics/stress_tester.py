@@ -203,9 +203,10 @@ def run_stress_test(settings: Settings, persist: bool = True) -> dict:
     }
     if persist:
         settings.config_dir.mkdir(parents=True, exist_ok=True)
-        (settings.config_dir / "router_config.json").write_text(
-            json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        if len(router_rows) >= MIN_LIVE_TRADES:
+            (settings.config_dir / "router_config.json").write_text(
+                json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
         (settings.config_dir / "stress_test_report.json").write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )

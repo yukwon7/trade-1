@@ -195,7 +195,7 @@ class TelegramCommandHandler:
             status = self.controller.status()
             return f"🔁 <b>자동 선택 복귀</b>\n현재 {status['active_strategy']} · 방식 {status['source']}"
         if value not in STRATEGIES:
-            return "전략 ID는 S20~S55 또는 S99 중 하나여야 합니다. 예: /strategy S99"
+            return "전략 ID는 S20~S60 또는 S99 중 하나여야 합니다. 예: /strategy S99"
         self.controller.set_manual_strategy(value)
         strategy = STRATEGIES[value]
         return (
@@ -345,7 +345,7 @@ class TelegramCommandHandler:
 
     @staticmethod
     def _strategies_text() -> str:
-        catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 55]
+        catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 60]
         return (
             "🧩 <b>전략 카탈로그</b>\n"
             f"자동 라우터: S99 · {html.escape(STRATEGIES['S99'].name)}\n"

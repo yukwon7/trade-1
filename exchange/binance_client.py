@@ -81,14 +81,14 @@ class BinanceFuturesClient:
             if next_cursor <= cursor:
                 break
             cursor = next_cursor
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.2)
         return sorted(output.values(), key=lambda item: item.open_time)
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         headers = {"X-MBX-APIKEY": self.api_key} if self.api_key else {}
         delay = 1.0
         last_error: Exception | None = None
-        for attempt in range(4):
+        for attempt in range(6):
             try:
                 async with self._semaphore:
                     async with self.session.get(
@@ -97,13 +97,17 @@ class BinanceFuturesClient:
                         headers=headers,
                         timeout=aiohttp.ClientTimeout(total=15),
                     ) as response:
-                        if response.status in {418, 429} or response.status >= 500:
+                        if response.status in {418, 429}:
+                            retry_after = float(response.headers.get("Retry-After", "10"))
+                            await asyncio.sleep(max(delay, retry_after))
+                            raise RuntimeError(f"Binance HTTP {response.status}")
+                        if response.status >= 500:
                             raise RuntimeError(f"Binance HTTP {response.status}")
                         response.raise_for_status()
                         return await response.json()
             except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as exc:
                 last_error = exc
-                if attempt == 3:
+                if attempt == 5:
                     break
                 await asyncio.sleep(delay)
                 delay *= 2

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -246,6 +247,36 @@ class CatalogStrategy(BaseStrategy):
             return self.signal(symbol, "SHORT", last.close, "StochRSI bearish cross proxy", {"score": 69})
         return None
 
+    def _template_supertrend_flip(self, symbol, candles_5m, candles_15m, regime):
+        direction = supertrend_direction(
+            candles_5m,
+            int(self.params.get("period", 10)),
+            float(self.params.get("multiplier", 3.0)),
+        )
+        last = candles_5m[-1]
+        vol = volume_ratio([item.volume for item in candles_5m], 20)[-1]
+        if direction[-2] <= 0 < direction[-1] and regime.bias != "SHORT" and vol >= float(self.params.get("volume", 1.0)):
+            return self.signal(symbol, "LONG", last.close, "Supertrend bullish flip", {"score": 76 + vol})
+        if direction[-2] >= 0 > direction[-1] and regime.bias != "LONG" and vol >= float(self.params.get("volume", 1.0)):
+            return self.signal(symbol, "SHORT", last.close, "Supertrend bearish flip", {"score": 76 + vol})
+        return None
+
+    def _template_aroon_zscore(self, symbol, candles_5m, candles_15m, regime):
+        values = closes(candles_5m)
+        period = int(self.params.get("period", 25))
+        zperiod = int(self.params.get("zperiod", 50))
+        if len(values) < max(period, zperiod) + 2:
+            return None
+        up, down = aroon(values, period)
+        z = zscore(values, zperiod)
+        last = candles_5m[-1]
+        vol = volume_ratio([item.volume for item in candles_5m], 20)[-1]
+        if up[-2] <= down[-2] and up[-1] > down[-1] and -0.5 <= z[-1] <= 2.0 and regime.bias != "SHORT" and vol >= float(self.params.get("volume", 1.0)):
+            return self.signal(symbol, "LONG", last.close, "Aroon bullish cross with zscore filter", {"score": 72 + vol})
+        if up[-2] >= down[-2] and up[-1] < down[-1] and -2.0 <= z[-1] <= 0.5 and regime.bias != "LONG" and vol >= float(self.params.get("volume", 1.0)):
+            return self.signal(symbol, "SHORT", last.close, "Aroon bearish cross with zscore filter", {"score": 72 + vol})
+        return None
+
 
 class ChartAdaptiveRouterStrategy(BaseStrategy):
     strategy_id = "S99"
@@ -264,6 +295,7 @@ class ChartAdaptiveRouterStrategy(BaseStrategy):
         regime = analyze_regime(candles_5m, candles_15m)
         config = self._load_config()
         allowed = set(config.get("allowed_strategies") or [])
+        enforce_allowlist = bool(config.get("enforce_allowlist", False))
         excluded = set(config.get("excluded_strategies") or [])
         symbol_blacklist = set(config.get("symbol_blacklist") or [])
         minimum_score = float(config.get("minimum_score", 70))
@@ -272,7 +304,9 @@ class ChartAdaptiveRouterStrategy(BaseStrategy):
             return None
         candidates: list[StrategySignal] = []
         for strategy in self.catalog:
-            if allowed and strategy.strategy_id not in allowed:
+            if enforce_allowlist and strategy.strategy_id not in allowed:
+                continue
+            if not enforce_allowlist and allowed and strategy.strategy_id not in allowed:
                 continue
             if strategy.strategy_id in excluded:
                 continue
@@ -382,6 +416,56 @@ def analyze_regime(candles_5m, candles_15m) -> ChartRegime:
     return ChartRegime(name, bias, trend, volatility, volume, score, tuple(tags))
 
 
+def supertrend_direction(candles, period: int = 10, multiplier: float = 3.0) -> list[int]:
+    atr_values = atr(candles, period)
+    upper: list[float] = []
+    lower: list[float] = []
+    direction = [1] * len(candles)
+    final_upper = 0.0
+    final_lower = 0.0
+    for index, candle in enumerate(candles):
+        hl2 = (candle.high + candle.low) / 2.0
+        basic_upper = hl2 + multiplier * atr_values[index]
+        basic_lower = hl2 - multiplier * atr_values[index]
+        if index == 0:
+            final_upper, final_lower = basic_upper, basic_lower
+        else:
+            previous = candles[index - 1]
+            final_upper = basic_upper if basic_upper < final_upper or previous.close > final_upper else final_upper
+            final_lower = basic_lower if basic_lower > final_lower or previous.close < final_lower else final_lower
+            if candle.close > final_upper:
+                direction[index] = 1
+            elif candle.close < final_lower:
+                direction[index] = -1
+            else:
+                direction[index] = direction[index - 1]
+        upper.append(final_upper)
+        lower.append(final_lower)
+    return direction
+
+
+def aroon(values: list[float], period: int) -> tuple[list[float], list[float]]:
+    up, down = [50.0] * len(values), [50.0] * len(values)
+    for index in range(period, len(values)):
+        window = values[index - period + 1 : index + 1]
+        high_index = max(range(len(window)), key=lambda item: window[item])
+        low_index = min(range(len(window)), key=lambda item: window[item])
+        up[index] = 100.0 * high_index / max(1, period - 1)
+        down[index] = 100.0 * low_index / max(1, period - 1)
+    return up, down
+
+
+def zscore(values: list[float], period: int) -> list[float]:
+    output = [0.0] * len(values)
+    for index in range(period - 1, len(values)):
+        window = values[index - period + 1 : index + 1]
+        mean = sum(window) / period
+        variance = sum((value - mean) ** 2 for value in window) / period
+        sigma = math.sqrt(variance)
+        output[index] = (values[index] - mean) / sigma if sigma else 0.0
+    return output
+
+
 def build_catalog_strategies() -> list[CatalogStrategy]:
     definitions = [
         ("S20", "EMA9_21_PULLBACK", "ema_pullback", ("BULL_TREND", "BEAR_TREND"), {"fast": 9, "slow": 21, "volume": 1.0}),
@@ -420,6 +504,11 @@ def build_catalog_strategies() -> list[CatalogStrategy]:
         ("S53", "MACD_LOW_VOL_EXPANSION", "macd_momentum", ("RANGE_LOW_VOL", "SQUEEZE"), {"volume": 1.15}),
         ("S54", "VWAP_TREND_REENTRY", "vwap_reclaim", ("BULL_TREND", "BEAR_TREND"), {"period": 48, "volume": 1.25}),
         ("S55", "DONCHIAN_TREND_FAST", "donchian_breakout", ("BULL_TREND", "BEAR_TREND"), {"lookback": 14, "volume": 1.3}),
+        ("S56", "SUPER_TREND_10_3", "supertrend_flip", ("BULL_TREND", "BEAR_TREND", "SQUEEZE"), {"period": 10, "multiplier": 3.0, "volume": 1.0}),
+        ("S57", "SUPER_TREND_8_2", "supertrend_flip", ("BULL_TREND", "BEAR_TREND", "SQUEEZE"), {"period": 8, "multiplier": 2.0, "volume": 1.1}),
+        ("S58", "SUPER_TREND_14_3", "supertrend_flip", ("BULL_TREND", "BEAR_TREND"), {"period": 14, "multiplier": 3.0, "volume": 1.0}),
+        ("S59", "AROON_ZSCORE_25", "aroon_zscore", ("BULL_TREND", "BEAR_TREND", "RANGE_NORMAL"), {"period": 25, "zperiod": 50, "volume": 1.0}),
+        ("S60", "AROON_ZSCORE_14", "aroon_zscore", ("BULL_TREND", "BEAR_TREND", "SQUEEZE"), {"period": 14, "zperiod": 40, "volume": 1.15}),
     ]
     return [
         CatalogStrategy(strategy_id, name, template, regimes, params=params, source="github_reddit_common")

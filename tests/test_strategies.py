@@ -9,9 +9,9 @@ from tests.helpers import candles
 
 class StrategyTests(unittest.TestCase):
     def test_all_ten_strategies_registered_with_requested_leverage(self):
-        catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 55]
+        catalog = [key for key in STRATEGIES if key.startswith("S") and key[1:].isdigit() and 20 <= int(key[1:]) <= 60]
         self.assertEqual(list(STRATEGY_ROTATION_IDS), ["S99"])
-        self.assertEqual(len(catalog), 36)
+        self.assertEqual(len(catalog), 41)
         self.assertTrue(all(STRATEGIES[key].leverage <= 3 for key in catalog))
         self.assertEqual(STRATEGIES["S99"].leverage, 3)
 
@@ -23,7 +23,7 @@ class StrategyTests(unittest.TestCase):
         self.assertIsNotNone(signal)
         self.assertEqual(signal.direction, "LONG")
         self.assertNotEqual(signal.strategy_id, "S99")
-        self.assertTrue(20 <= int(signal.strategy_id[1:]) <= 55)
+        self.assertTrue(20 <= int(signal.strategy_id[1:]) <= 60)
         self.assertIn("router_regime", signal.metadata)
 
 
