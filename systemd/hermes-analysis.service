@@ -1,0 +1,20 @@
+[Unit]
+Description=trade-1 Server A Hermes analysis cycle
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trade-1
+EnvironmentFile=/opt/trade-1/.env
+ExecStart=/opt/trade-1/scripts/run_analysis_cycle.sh
+MemoryMax=650M
+MemorySwapMax=4G
+CPUQuota=85%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/trade-1/data /opt/trade-1/config /opt/trade-1/logs

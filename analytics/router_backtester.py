@@ -390,6 +390,31 @@ async def run_backtest(days: int, step: int, refresh: bool, persist: bool = True
             "backtest_file": str(report_path),
         }
         (settings.config_dir / "router_config.json").write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        strategy_config = {
+            "active_strategy_ids": allowed or ["MACD_RSI_MOMENTUM"],
+            "disabled_strategy_ids": sorted(set(strategies) - set(allowed)),
+            "mode": "auto" if allowed else "paused",
+            "min_score": 70,
+            "updated_at": report["generated_at"],
+            "reason": "stress-period router backtest approval",
+        }
+        risk_config = {
+            "max_open_positions": 3,
+            "risk_per_trade": 0.01,
+            "max_leverage": 3,
+            "daily_loss_limit": 0.03,
+            "weekly_drawdown_limit": 0.08,
+            "updated_at": report["generated_at"],
+            "reason": "default server-b risk limits",
+        }
+        selected_symbols = {
+            "symbols": list(settings.symbols)[:10],
+            "updated_at": report["generated_at"],
+            "source": "backtest_settings_symbols",
+        }
+        (settings.config_dir / "strategy_config.json").write_text(json.dumps(strategy_config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (settings.config_dir / "risk_config.json").write_text(json.dumps(risk_config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (settings.config_dir / "selected_symbols.json").write_text(json.dumps(selected_symbols, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report
 
 

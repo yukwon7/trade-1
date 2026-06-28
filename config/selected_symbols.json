@@ -1,0 +1,14 @@
+{
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "AVAXUSDT"
+  ],
+  "updated_at": "2026-06-28T00:00:00Z",
+  "source": "default_server_b_symbols"
+}

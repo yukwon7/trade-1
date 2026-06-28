@@ -1,0 +1,9 @@
+{
+  "max_open_positions": 3,
+  "risk_per_trade": 0.01,
+  "max_leverage": 3,
+  "daily_loss_limit": 0.03,
+  "weekly_drawdown_limit": 0.08,
+  "updated_at": "2026-06-28T00:00:00Z",
+  "reason": "default server-b risk limits"
+}

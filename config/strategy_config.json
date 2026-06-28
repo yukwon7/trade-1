@@ -1,0 +1,8 @@
+{
+  "active_strategy_ids": ["MACD_RSI_MOMENTUM"],
+  "disabled_strategy_ids": [],
+  "mode": "auto",
+  "min_score": 65,
+  "updated_at": "2026-06-28T00:00:00Z",
+  "reason": "default approved stress-period strategy"
+}

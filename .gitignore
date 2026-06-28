@@ -11,6 +11,8 @@ config/router_control.json
 config/router_config.json
 config/router_snapshot.json
 config/stress_test_report.json
+config/execution_health.json
+config/strategy_decision_report.json
 config/tournament_control.json
 config/tournament_result.json
 backup_*/

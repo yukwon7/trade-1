@@ -1,6 +1,13 @@
-# trade-1 chart router
+# trade-1 two-server trading system
 
-Binance USDT-M futures paper trading bot. The active runtime is the chart-adaptive router:
+Binance USDT-M futures paper trading bot split into:
+
+- Server A: analysis / Hermes / backtest / stress test / config generation.
+- Server B: lightweight execution only.
+
+Server B must not run heavy analysis, strategy tournaments, scanners, or AI calls. It reads validated config files and manages positions.
+
+The execution runtime uses:
 
 - `S99` analyzes each symbol's chart regime.
 - `S20` through `S60` are the only active strategy catalog entries.
@@ -11,50 +18,68 @@ This repository is paper trading only. Secrets stay in `.env`; API keys are not 
 
 ## Runtime
 
-Server 1 runs paper trading:
+Server B runs lightweight execution:
 
 ```bash
 scripts/run_paper.sh
 ```
 
-Server 2 runs analysis and pushes runtime config to Server 1:
+Server A runs Hermes analysis:
 
 ```bash
-scripts/run_analysis.sh
+scripts/run_analysis_cycle.sh
 ```
 
 Analysis writes:
 
-- `config/router_config.json`
+- `config/strategy_config.json`
+- `config/risk_config.json`
+- `config/selected_symbols.json`
 - `data/router_backtest_stress_period.json`
 - `config/stress_test_report.json`
+- `config/strategy_decision_report.json`
 
-Paper runtime writes:
+Execution runtime writes:
 
-- `config/router_control.json`
-- `config/router_snapshot.json`
+- `config/execution_health.json`
+- `config/paper_state.json`
 
 These files are runtime state and are intentionally ignored by Git.
 
+## Config-only Server B deploy
+
+From Server A:
+
+```bash
+scripts/deploy_server_b_config_only.sh
+```
+
+Rollback:
+
+```bash
+scripts/rollback_server_b_config.sh latest
+```
+
+Never sync `.env`. Server B hot-reloads config on the next execution cycle.
+
 ## Telegram
 
-Current commands:
+Server B execution commands:
 
 - `/status`: bot status, balance, open positions
-- `/router`: latest router cycle and selected strategies
-- `/regime`: chart regime for all symbols
-- `/regime BTCUSDT`: chart regime and candidate strategies for one symbol
-- `/strategy`: current strategy
-- `/strategy S99`: use chart router
-- `/strategy S20` through `/strategy S60`: manually force one catalog strategy
-- `/strategy auto`: return to automatic router
-- `/strategies`: catalog summary
-- `/stress`: live-readiness stress test
 - `/positions`: open positions
-- `/balance`: paper account balance
-- `/trades`: recent completed trades
-- `/daily`, `/weekly`, `/monthly`: period performance
+- `/risk`: active risk config
 - `/pause`, `/resume`: pause or resume new entries
+- `/close_all CONFIRM`: emergency close all current paper positions
+- `/config`: active config and validation errors
+- `/health`: execution health snapshot
+
+Server A analysis commands:
+
+- `/analyze`, `/daily`, `/weekly`, `/monthly`
+- `/stress`, `/backtest`
+- `/strategies`, `/decision`
+- `/deploy_config`, `/rollback_config`, `/hermes_status`
 
 ## Stress-period router approval
 

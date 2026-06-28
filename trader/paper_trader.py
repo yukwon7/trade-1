@@ -19,6 +19,10 @@ class PaperTrader:
         self.positions: dict[str, TournamentPosition] = {}
         self.balance = settings.initial_balance
         self.entry_paused = False
+        self.max_open_positions = settings.max_open_positions
+        self.risk_per_trade = settings.risk_per_trade
+        self.max_leverage = settings.max_leverage
+        self.daily_loss_limit = 0.05
         self._state_path = settings.config_dir / "paper_state.json"
         self._lock = asyncio.Lock()
         self._notified_blocks: set[tuple[str, str]] = set()
@@ -34,6 +38,12 @@ class PaperTrader:
             self.entry_paused,
         )
 
+    def update_runtime_limits(self, risk_config) -> None:
+        self.max_open_positions = int(getattr(risk_config, "max_open_positions", self.settings.max_open_positions))
+        self.risk_per_trade = float(getattr(risk_config, "risk_per_trade", self.settings.risk_per_trade))
+        self.max_leverage = int(getattr(risk_config, "max_leverage", self.settings.max_leverage))
+        self.daily_loss_limit = float(getattr(risk_config, "daily_loss_limit", self.daily_loss_limit))
+
     async def set_entry_paused(self, paused: bool) -> None:
         async with self._lock:
             self.entry_paused = bool(paused)
@@ -45,7 +55,7 @@ class PaperTrader:
 
     async def open(self, signal: StrategySignal) -> TournamentPosition | None:
         async with self._lock:
-            if self.entry_paused or signal.symbol in self.positions or len(self.positions) >= self.settings.max_open_positions:
+            if self.entry_paused or signal.symbol in self.positions or len(self.positions) >= self.max_open_positions:
                 return None
             allowed, reason, resume_at = await self._allow_entry(signal.symbol, signal.strategy_id)
             if not allowed:
@@ -54,7 +64,7 @@ class PaperTrader:
                     self._notified_blocks.add(key)
                     await self.notifier.circuit_breaker(f"{signal.strategy_id} {signal.symbol}: {reason}", resume_at)
                 return None
-            leverage = max(1, min(self.settings.max_leverage, signal.leverage))
+            leverage = max(1, min(self.max_leverage, signal.leverage))
             stop_price = signal.entry_price * (
                 1.0 - signal.stop_loss_pct if signal.direction == "LONG" else 1.0 + signal.stop_loss_pct
             )
@@ -66,13 +76,13 @@ class PaperTrader:
             stop_distance = abs(signal.entry_price - stop_price)
             used_margin = sum(item.margin for item in self.positions.values())
             available_margin = max(0.0, self.balance - used_margin)
-            per_position_margin = min(available_margin, self.balance / self.settings.max_open_positions)
+            per_position_margin = min(available_margin, self.balance / self.max_open_positions)
             loss_per_unit = (
                 stop_distance
                 + signal.entry_price * (self.settings.fee_rate + self.settings.slippage)
                 + stop_price * self.settings.fee_rate
             )
-            risk_quantity = self.balance * self.settings.risk_per_trade / loss_per_unit if loss_per_unit else 0.0
+            risk_quantity = self.balance * self.risk_per_trade / loss_per_unit if loss_per_unit else 0.0
             margin_quantity = per_position_margin * leverage / signal.entry_price if signal.entry_price > 0 else 0.0
             quantity = max(0.0, min(risk_quantity, margin_quantity))
             if quantity <= 0:
@@ -125,6 +135,13 @@ class PaperTrader:
             else:
                 await self.store.save_position(position)
 
+    async def close_all(self, reason: str = "OPERATOR_CLOSE_ALL") -> int:
+        async with self._lock:
+            positions = list(self.positions.values())
+            for position in positions:
+                await self._close(position, position.current_price, reason)
+            return len(positions)
+
     def _fixed_exit(self, position: TournamentPosition, low: float, high: float) -> str | None:
         if position.direction == "LONG":
             if low <= position.stop_price:
@@ -166,7 +183,7 @@ class PaperTrader:
     async def _allow_entry(self, symbol: str, strategy_id: str) -> tuple[bool, str, str]:
         state = await self.store.risk_state(symbol, strategy_id)
         now = datetime.now(timezone.utc)
-        if state["daily_pnl"] <= -(self.settings.initial_balance * 0.05):
+        if state["daily_pnl"] <= -(self.settings.initial_balance * self.daily_loss_limit):
             resume = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             return False, "DAILY_LOSS_LIMIT_5_PERCENT", resume.isoformat()
         if state["consecutive_losses"] >= 3 and state["last_loss_at"]:

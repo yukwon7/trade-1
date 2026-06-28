@@ -5,4 +5,7 @@ cd "$(dirname "$0")/.."
   --days "${ROUTER_BACKTEST_DAYS:-0}" \
   --step "${ROUTER_BACKTEST_STEP:-12}" \
   "$@"
-scripts/deploy_runtime_to_paper.sh
+
+if [[ "${DEPLOY_CONFIG:-0}" == "1" ]]; then
+  scripts/deploy_server_b_config_only.sh
+fi
