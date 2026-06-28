@@ -70,7 +70,7 @@ class ConfigReloader:
         self._strategy = StrategyExecutionConfig()
         self._risk = RiskExecutionConfig()
         self._symbols = SymbolExecutionConfig(symbols=self._default_symbols)
-        self._mtimes: dict[str, float] = {}
+        self._file_signatures: dict[str, tuple[int, int]] = {}
         self.last_errors: dict[str, str] = {}
 
     def current(self) -> ExecutionRuntimeConfig:
@@ -92,8 +92,9 @@ class ConfigReloader:
         path = self.config_dir / filename
         if not path.exists():
             return previous
-        mtime = path.stat().st_mtime
-        if self._mtimes.get(filename) == mtime:
+        stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if self._file_signatures.get(filename) == signature:
             return previous
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -102,7 +103,7 @@ class ConfigReloader:
             self.last_errors[filename] = str(exc)
             logger.warning("rejected invalid execution config %s: %s", path, exc)
             return previous
-        self._mtimes[filename] = mtime
+        self._file_signatures[filename] = signature
         self.last_errors.pop(filename, None)
         logger.info("loaded execution config %s", path)
         return parsed

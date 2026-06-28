@@ -1,0 +1,25 @@
+[Unit]
+Description=trade-1 Server A Hermes Telegram analysis bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trade-1
+EnvironmentFile=/opt/trade-1/.env
+ExecStart=/opt/trade-1/scripts/run_analysis_bot.sh
+Restart=on-failure
+RestartSec=15
+MemoryMax=350M
+MemorySwapMax=2G
+CPUQuota=50%
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/trade-1/data /opt/trade-1/config /opt/trade-1/logs
+
+[Install]
+WantedBy=multi-user.target

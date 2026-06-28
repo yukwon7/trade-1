@@ -96,6 +96,19 @@ Server A analysis commands:
 - `/strategies`, `/decision`
 - `/deploy_config`, `/rollback_config`, `/hermes_status`
 
+Server A can use a separate Telegram bot token:
+
+```bash
+TELEGRAM_ANALYSIS_BOT_TOKEN=...
+TELEGRAM_ANALYSIS_CHAT_ID=...   # optional; defaults to TELEGRAM_CHAT_ID
+```
+
+Run it with:
+
+```bash
+scripts/run_analysis_bot.sh
+```
+
 ## Stress-period router approval
 
 Server 2 can approve the runtime strategy allowlist from the paper-trading stress period already stored in `trades.db`:

@@ -25,6 +25,8 @@ class Settings:
     binance_secret_key: str
     telegram_bot_token: str
     telegram_chat_id: str
+    telegram_analysis_bot_token: str = ""
+    telegram_analysis_chat_id: str = ""
     initial_balance: float = 1000.0
     risk_per_trade: float = 0.01
     max_open_positions: int = 3
@@ -60,6 +62,8 @@ class Settings:
             binance_secret_key=os.getenv("BINANCE_SECRET_KEY", "").strip(),
             telegram_bot_token=token,
             telegram_chat_id=chat_id,
+            telegram_analysis_bot_token=os.getenv("TELEGRAM_ANALYSIS_BOT_TOKEN", token).strip(),
+            telegram_analysis_chat_id=os.getenv("TELEGRAM_ANALYSIS_CHAT_ID", chat_id).strip(),
             initial_balance=float(os.getenv("INITIAL_BALANCE", "1000")),
             # Safety limits are code-enforced so stale values in the preserved
             # .env cannot silently weaken the current paper-live rules.
