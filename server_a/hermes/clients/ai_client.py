@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,36 +66,41 @@ class HermesAIClient:
     async def suggest(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         if not self.config.enabled:
             return None
-        body = {
-            "model": self.config.model,
-            "messages": [
-                {"role": "system", "content": _system_prompt()},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
-            ],
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-        }
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
-        for attempt in range(2):
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        f"{self.config.base_url}/chat/completions",
-                        headers=headers,
-                        json=body,
-                        timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
-                    ) as response:
-                        data = await response.json(content_type=None)
-                        if response.status != 200:
-                            raise RuntimeError(f"AI HTTP {response.status}: {data}")
-                        content = data["choices"][0]["message"]["content"]
-                        return json.loads(content)
-            except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, ValueError, RuntimeError) as exc:
-                logger.warning("Hermes AI suggestion failed attempt=%s provider=%s error=%s", attempt + 1, self.config.provider, exc)
-                await asyncio.sleep(1 + attempt)
+        for model in _models(self.config.model):
+            body = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": _system_prompt()},
+                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+                ],
+                "temperature": 0.1,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+            }
+            for attempt in range(2):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{self.config.base_url}/chat/completions",
+                            headers=headers,
+                            json=body,
+                            timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
+                        ) as response:
+                            text = await response.text()
+                            data = _parse_response_json(text)
+                            if response.status != 200:
+                                raise RuntimeError(f"AI HTTP {response.status}: {data}")
+                            content = data["choices"][0]["message"]["content"]
+                            parsed = _parse_json_object(content)
+                            parsed["_model_used"] = model
+                            return parsed
+                except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, ValueError, RuntimeError) as exc:
+                    logger.warning("Hermes AI suggestion failed model=%s attempt=%s provider=%s error=%s", model, attempt + 1, self.config.provider, exc)
+                    await asyncio.sleep(1 + attempt)
         return None
 
 
@@ -106,3 +112,51 @@ def _system_prompt() -> str:
         "Never increase max_leverage above 3, risk_per_trade above 0.01, or max_open_positions above 3. "
         "If evidence is weak, prefer KEEP, TUNE_PARAMETERS, DISABLE_STRATEGY, or REDUCE_RISK."
     )
+
+
+def _models(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_json_object(content: str) -> dict[str, Any]:
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+        text = re.sub(r"```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        parsed = json.loads(text[start : end + 1])
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("AI response did not contain a JSON object")
+
+
+def _parse_response_json(text: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    chunks = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            continue
+        try:
+            chunks.append(json.loads(payload))
+        except json.JSONDecodeError:
+            continue
+    if chunks:
+        return chunks[-1]
+    raise ValueError("AI HTTP response did not contain JSON")

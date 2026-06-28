@@ -7,6 +7,13 @@ from server_a.hermes.clients.ai_client import HermesAIClient
 
 
 ALLOWED_ACTIONS = {"KEEP", "TUNE_PARAMETERS", "DISABLE_STRATEGY", "REPLACE_STRATEGY", "REDUCE_RISK"}
+ACTION_SEVERITY = {
+    "KEEP": 0,
+    "TUNE_PARAMETERS": 1,
+    "REDUCE_RISK": 2,
+    "DISABLE_STRATEGY": 3,
+    "REPLACE_STRATEGY": 3,
+}
 
 
 async def apply_ai_suggestion(base_report: dict[str, Any], ai_client: HermesAIClient | None = None) -> dict[str, Any]:
@@ -29,8 +36,9 @@ async def apply_ai_suggestion(base_report: dict[str, Any], ai_client: HermesAICl
 
     merged = deepcopy(base_report)
     decision = deepcopy(merged.get("decision") or {})
-    action = str(suggestion.get("action") or decision.get("action") or "").upper()
-    if action in ALLOWED_ACTIONS:
+    base_action = str(decision.get("action") or "").upper()
+    action = str(suggestion.get("action") or base_action).upper()
+    if action in ALLOWED_ACTIONS and ACTION_SEVERITY.get(action, 0) >= ACTION_SEVERITY.get(base_action, 0):
         decision["action"] = action
     if suggestion.get("reason"):
         decision["reason"] = str(suggestion["reason"])[:500]

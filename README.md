@@ -44,6 +44,8 @@ OPENAI_MODEL=gpt-4.1-mini
 # or
 NVIDIA_API_KEY=...
 NVIDIA_MODEL=deepseek-ai/deepseek-r1
+# comma-separated fallback models are also supported:
+# NVIDIA_MODEL=deepseek-ai/deepseek-r1,meta/llama-3.1-70b-instruct
 NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
 ```
 

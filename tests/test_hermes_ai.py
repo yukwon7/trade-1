@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from server_a.hermes.clients.ai_client import AIClientConfig, HermesAIClient
+from server_a.hermes.clients.ai_client import AIClientConfig, HermesAIClient, _parse_json_object
 from server_a.hermes.gate import deployment_gate
 from server_a.hermes.orchestrator import apply_ai_suggestion
 
@@ -29,6 +29,10 @@ class HermesAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.config.provider, "nvidia")
         self.assertEqual(client.config.base_url, "https://integrate.api.nvidia.com/v1")
         self.assertEqual(client.config.model, "nvidia/test-model")
+
+    def test_ai_json_parser_extracts_object_from_reasoning_text(self):
+        parsed = _parse_json_object('thinking...\\n{"action":"KEEP","reason":"ok"}\\nfinal')
+        self.assertEqual(parsed["action"], "KEEP")
 
     async def test_no_provider_keeps_rule_based_decision(self):
         report = {
@@ -69,6 +73,21 @@ class HermesAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(risk["max_open_positions"], 3)
         allowed, reason = deployment_gate(result["decision"])
         self.assertTrue(allowed, reason)
+
+    async def test_ai_cannot_downgrade_disable_to_keep(self):
+        report = {
+            "performance": {},
+            "decision": {
+                "action": "DISABLE_STRATEGY",
+                "reason": "rule",
+                "strategy_config": {"active_strategy_ids": ["MACD_RSI_MOMENTUM"], "mode": "paused"},
+                "risk_config": {"risk_per_trade": 0.01, "max_leverage": 3, "max_open_positions": 3},
+            },
+            "deployable": True,
+            "gate_reason": "ok",
+        }
+        result = await apply_ai_suggestion(report, FakeAIClient({"action": "KEEP", "reason": "too optimistic"}))
+        self.assertEqual(result["decision"]["action"], "DISABLE_STRATEGY")
 
 
 if __name__ == "__main__":
