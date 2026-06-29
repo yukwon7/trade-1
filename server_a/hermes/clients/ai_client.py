@@ -42,6 +42,15 @@ class HermesAIClient:
     @classmethod
     def from_env(cls, provider: str | None = None) -> "HermesAIClient":
         provider = (provider or os.getenv("HERMES_AI_PROVIDER", "")).strip().lower()
+        if provider.startswith("nvidia:"):
+            model = provider.split(":", 1)[1].strip()
+            return cls(AIClientConfig(
+                provider="nvidia",
+                api_key=os.getenv("NVIDIA_API_KEY", "").strip() or os.getenv("NIM_API_KEY", "").strip(),
+                base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/"),
+                model=model,
+                model_api_keys=_nvidia_model_api_keys(model),
+            ))
         if provider in {"glm", "glm4", "glm-4", "zhipu"}:
             return cls(AIClientConfig(
                 provider="glm",

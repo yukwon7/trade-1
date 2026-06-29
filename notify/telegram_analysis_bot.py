@@ -20,20 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 ANALYSIS_BOT_COMMANDS = [
-    {"command": "start", "description": "AI orchestra room help"},
-    {"command": "bind_agent_room", "description": "bind this chat room to Hermes"},
-    {"command": "think", "description": "cross-check with free agents"},
-    {"command": "gpt", "description": "premium OpenAI route"},
-    {"command": "nvidia", "description": "NVIDIA NIM route"},
-    {"command": "free", "description": "free-agent route"},
-    {"command": "code", "description": "coding request route"},
-    {"command": "review", "description": "code review route"},
-    {"command": "urgent", "description": "urgent premium route"},
-    {"command": "status", "description": "orchestrator status"},
-    {"command": "model", "description": "active model list"},
-    {"command": "cost", "description": "API usage guard"},
+    {"command": "start", "description": "initialize Hermes agent room"},
+    {"command": "task", "description": "start development task"},
+    {"command": "debate", "description": "summon agent debate"},
+    {"command": "review", "description": "request code review"},
+    {"command": "approve", "description": "approve pending consensus"},
+    {"command": "reject", "description": "reject and rework"},
+    {"command": "status", "description": "current Hermes state"},
     {"command": "agents", "description": "agent roles"},
-    {"command": "clear", "description": "clear context cache"},
+    {"command": "stop", "description": "stop current work"},
+    {"command": "bind_agent_room", "description": "bind this chat room"},
 ]
 
 
@@ -167,6 +163,17 @@ class TelegramAnalysisCommandHandler:
     async def dispatch(self, command: str, argument: str = "") -> str:
         if command in {"start", "help", "hermes_status"}:
             return self.status_text()
+        if command == "task":
+            return await self.router.task(argument or "마스터가 태스크 내용을 비워 보냈습니다. 필요한 작업을 질문해서 명확히 해라.")
+        if command == "debate":
+            return await self.router.debate(argument or "현재 Hermes 오케스트라 구조가 적절한지 토론해라.")
+        if command == "approve":
+            return await self.router.approve()
+        if command == "reject":
+            return await self.router.reject(argument)
+        if command == "stop":
+            self.agents.clear()
+            return self.router.stop()
         if command in {"model", "models"}:
             return self.router.models_text()
         if command == "status":
@@ -224,14 +231,16 @@ class TelegramAnalysisCommandHandler:
     @staticmethod
     def status_text() -> str:
         return (
-            "🧠 <b>Hermes AI 오케스트라 방</b>\n"
-            "일반 채팅: Hermes가 난이도에 맞춰 AI 모델을 라우팅\n"
-            "/think 질문: GLM/Gemini/Qwen 교차검증\n"
-            "/free 질문: 무료 에이전트 우선\n"
-            "/gpt 질문 또는 /urgent 요청: 프리미엄 경로\n"
-            "/nvidia 질문: NVIDIA 직접 호출\n"
-            "/code 요청 /review 코드: 개발/리뷰 경로\n"
-            "/model /status /cost /agents: 상태 확인\n"
+            "🔱 <b>HERMES AI 오케스트라</b>\n"
+            "마스터 명령을 받아 전문 에이전트 토론 → 합의안 → 승인 대기로 진행합니다.\n"
+            "/task 내용: 개발 태스크 시작\n"
+            "/debate 주제: 전체 토론 소집\n"
+            "/review 코드: 코드 리뷰\n"
+            "/approve: 합의안 승인\n"
+            "/reject 이유: 재작업\n"
+            "/status: 현재 진행 상태\n"
+            "/agents: 에이전트 역할 안내\n"
+            "/stop: 전체 중단\n"
             "/bind_agent_room: 현재 방 등록\n"
-            "/clear: 컨텍스트/캐시 초기화"
+            "일반 채팅도 HERMES가 태스크 여부를 판단해 처리합니다."
         )

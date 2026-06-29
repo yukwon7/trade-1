@@ -109,19 +109,16 @@ Server B execution commands:
 
 Server A Hermes AI Orchestrator commands:
 
-- `/think <message>`: cross-check with GLM/Gemini/OpenRouter, then synthesize
-- `/free <message>`: free-agent-first route
-- `/gpt <message>` or `/urgent <message>`: premium route, OpenAI first with fallbacks
-- `/nvidia <message>`: NVIDIA NIM direct route
-- `/code <goal>`: coding/development route
-- `/review <code>`: review route
-- `/model`: configured provider/model status; never prints key values
-- `/status`: orchestrator runtime usage and provider status
-- `/cost`: local usage guard summary
-- `/agents`: provider roles and internal review personas
+- `/task <goal>`: start a development task; Hermes assigns agents and returns a consensus pending approval
+- `/debate <topic>`: summon the full agent team for a structured debate
+- `/review <code>`: ARES-led code review with implementation and optimization input
+- `/approve`: approve the pending consensus for follow-up execution by the Codex/operator workflow
+- `/reject <reason>`: reject the pending consensus and request rework
+- `/status`: current pending task, model status, and process-local usage
+- `/agents`: HERMES, ZEUS, ATHENA, APOLLO, ARES, HEPHAESTUS, ORACLE roles and assigned NVIDIA models
+- `/stop`: stop the current pending work and clear cache
 - `/bind_agent_room`: authorize the current Telegram room
-- `/clear`: clear in-process conversation cache
-- hidden legacy analysis commands still exist for operators: `/analyze`, `/stress`, `/backtest`, `/decision`
+- hidden operator/debug commands still exist: `/model`, `/cost`, `/think`, `/free`, `/gpt`, `/nvidia`, `/code`, `/analyze`, `/stress`, `/backtest`, `/decision`
 - plain text messages are routed automatically when `AGENT_CONVERSATION_ENABLED=true`
 
 Server A can use a separate Telegram bot token:

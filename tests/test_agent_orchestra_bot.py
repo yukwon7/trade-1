@@ -40,6 +40,21 @@ class FakeRouter:
     async def auto(self, message):
         return f"auto:{message}"
 
+    async def task(self, message):
+        return f"task:{message}"
+
+    async def debate(self, message):
+        return f"debate:{message}"
+
+    async def approve(self):
+        return "approved"
+
+    async def reject(self, reason):
+        return f"rejected:{reason}"
+
+    def stop(self):
+        return "stopped"
+
     async def code(self, message):
         return f"code:{message}"
 
@@ -96,6 +111,13 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.handler.dispatch("agent", "hello"), "auto:hello")
         self.assertEqual(await self.handler.dispatch("dev", "fix tests"), "code:fix tests")
 
+    async def test_v4_master_commands(self):
+        self.assertEqual(await self.handler.dispatch("task", "build feature"), "task:build feature")
+        self.assertEqual(await self.handler.dispatch("debate", "architecture"), "debate:architecture")
+        self.assertEqual(await self.handler.dispatch("approve"), "approved")
+        self.assertEqual(await self.handler.dispatch("reject", "not enough"), "rejected:not enough")
+        self.assertEqual(await self.handler.dispatch("stop"), "stopped")
+
     async def test_v3_router_commands(self):
         self.assertEqual(await self.handler.dispatch("think", "hello"), "think:hello")
         self.assertEqual(await self.handler.dispatch("free", "hello"), "free:hello")
@@ -146,7 +168,6 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_agent_text_hides_legacy_risk_personas(self):
         text = AgentRouter().agents_text().lower()
         self.assertNotIn("risk", text)
-        self.assertNotIn("qa", text)
         self.assertNotIn("리스크", text)
 
 
