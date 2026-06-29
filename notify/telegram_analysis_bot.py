@@ -20,16 +20,18 @@ logger = logging.getLogger(__name__)
 
 
 ANALYSIS_BOT_COMMANDS = [
-    {"command": "start", "description": "initialize Hermes agent room"},
-    {"command": "task", "description": "start development task"},
-    {"command": "debate", "description": "summon agent debate"},
-    {"command": "review", "description": "request code review"},
-    {"command": "approve", "description": "approve pending consensus"},
-    {"command": "reject", "description": "reject and rework"},
-    {"command": "status", "description": "current Hermes state"},
-    {"command": "agents", "description": "agent roles"},
-    {"command": "stop", "description": "stop current work"},
-    {"command": "bind_agent_room", "description": "bind this chat room"},
+    {"command": "start", "description": "헤르메스 시작/도움말"},
+    {"command": "goal", "description": "목표 설정 후 진행 보고"},
+    {"command": "progress", "description": "현재 목표 진행률"},
+    {"command": "task", "description": "개발 태스크 시작"},
+    {"command": "debate", "description": "에이전트 토론"},
+    {"command": "review", "description": "코드 리뷰"},
+    {"command": "approve", "description": "합의안 승인"},
+    {"command": "reject", "description": "거부/재작업"},
+    {"command": "status", "description": "현재 상태"},
+    {"command": "agents", "description": "에이전트 목록"},
+    {"command": "stop", "description": "중단"},
+    {"command": "bind_agent_room", "description": "현재 방 등록"},
 ]
 
 
@@ -46,7 +48,10 @@ class TelegramAnalysisCommandHandler:
         self.agents = AgentOrchestra(settings.project_dir)
         self.router = AgentRouter()
         config_dir = Path(getattr(settings, "config_dir", Path(settings.project_dir) / "config"))
+        self.config_dir = config_dir
         self.allowed_chats_path = config_dir / "analysis_allowed_chats.json"
+        self.goal_task: asyncio.Task | None = None
+        self.goal_state: dict[str, Any] = {}
 
     async def run(self, stop_event: asyncio.Event) -> None:
         configured = False
@@ -112,7 +117,7 @@ class TelegramAnalysisCommandHandler:
         raw, _, argument = stripped.partition(" ")
         command = raw[1:].split("@", 1)[0].lower()
         try:
-            reply = await self.dispatch(command, argument.strip())
+            reply = await self.dispatch(command, argument.strip(), chat_id)
         except Exception:
             logger.exception("telegram analysis command failed: /%s", command)
             reply = "⚠️ 분석 명령 처리 중 오류가 발생했습니다. Server A 로그를 확인하세요."
@@ -160,19 +165,24 @@ class TelegramAnalysisCommandHandler:
         }
         self.allowed_chats_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    async def dispatch(self, command: str, argument: str = "") -> str:
-        if command in {"start", "help", "hermes_status"}:
+    async def dispatch(self, command: str, argument: str = "", chat_id: str | None = None) -> str:
+        if command in {"start", "help", "hermes_status", "시작", "도움말"}:
             return self.status_text()
-        if command == "task":
+        if command in {"goal", "목표", "set_goal"}:
+            return self.start_goal(chat_id or self.chat_id, argument)
+        if command in {"progress", "goal_status", "진행", "진행률"}:
+            return self.goal_status_text()
+        if command in {"task", "작업"}:
             return await self.router.task(argument or "마스터가 태스크 내용을 비워 보냈습니다. 필요한 작업을 질문해서 명확히 해라.")
-        if command == "debate":
+        if command in {"debate", "토론"}:
             return await self.router.debate(argument or "현재 Hermes 오케스트라 구조가 적절한지 토론해라.")
-        if command == "approve":
+        if command in {"approve", "승인"}:
             return await self.router.approve()
-        if command == "reject":
+        if command in {"reject", "거절", "반려"}:
             return await self.router.reject(argument)
-        if command == "stop":
+        if command in {"stop", "중단"}:
             self.agents.clear()
+            self.stop_goal()
             return self.router.stop()
         if command in {"model", "models"}:
             return self.router.models_text()
@@ -225,22 +235,95 @@ class TelegramAnalysisCommandHandler:
         if command == "clear":
             self.agents.clear()
             self.router.clear()
+            self.stop_goal()
             return "대화 기록과 오케스트레이터 캐시를 초기화했습니다."
         return f"❓ 지원하지 않는 분석 명령입니다: /{html.escape(command)}"
+
+    def start_goal(self, chat_id: str, goal: str) -> str:
+        goal = goal.strip()
+        if not goal:
+            return "사용법: /goal 목표내용"
+        if self.goal_task and not self.goal_task.done():
+            return "이미 진행 중인 목표가 있습니다. /progress 로 확인하거나 /stop 으로 중단하세요."
+        self.goal_state = {
+            "goal": goal,
+            "progress": 0,
+            "status": "시작",
+            "started_at": asyncio.get_running_loop().time(),
+        }
+        self.goal_task = asyncio.create_task(self._run_goal(chat_id, goal))
+        return f"🎯 목표 설정 완료\n진행률 0%\n{html.escape(goal[:700])}"
+
+    def stop_goal(self) -> None:
+        if self.goal_task and not self.goal_task.done():
+            self.goal_task.cancel()
+        if self.goal_state:
+            self.goal_state["status"] = "중단"
+
+    def goal_status_text(self) -> str:
+        if not self.goal_state:
+            return "진행 중인 목표가 없습니다. /goal 목표내용 으로 시작하세요."
+        return (
+            f"🎯 목표 진행률 {int(self.goal_state.get('progress', 0))}%\n"
+            f"상태: {html.escape(str(self.goal_state.get('status', '대기')))}\n"
+            f"목표: {html.escape(str(self.goal_state.get('goal', ''))[:700])}"
+        )
+
+    async def _run_goal(self, chat_id: str, goal: str) -> None:
+        try:
+            await self._goal_update(chat_id, 10, "목표 분석 중")
+            await asyncio.sleep(0.2)
+            await self._goal_update(chat_id, 40, "에이전트 합의안 생성 중")
+            report = await self.router.task(goal)
+            await self._append_goal_queue(goal, report)
+            await self._goal_update(chat_id, 75, "Codex 작업 큐 등록 완료")
+            await self._send_to_chat(chat_id, _compact_text(report, 1600))
+            await self._goal_update(chat_id, 100, "완료 — 필요 시 /approve 로 승인")
+        except asyncio.CancelledError:
+            await self._goal_update(chat_id, int(self.goal_state.get("progress", 0)), "중단됨")
+            raise
+        except Exception:
+            logger.exception("Hermes goal runner failed")
+            await self._goal_update(chat_id, int(self.goal_state.get("progress", 0)), "오류 — Server A 로그 확인 필요")
+
+    async def _goal_update(self, chat_id: str, progress: int, status: str) -> None:
+        self.goal_state["progress"] = progress
+        self.goal_state["status"] = status
+        await self._send_to_chat(chat_id, f"🎯 목표 진행률 {progress}%\n{html.escape(status)}")
+
+    async def _append_goal_queue(self, goal: str, report: str) -> None:
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        path = self.config_dir / "codex_goal_queue.jsonl"
+        payload = {
+            "goal": goal,
+            "report": report[:3000],
+            "created_by": "telegram_hermes_goal",
+        }
+        await asyncio.to_thread(_append_jsonl, path, payload)
 
     @staticmethod
     def status_text() -> str:
         return (
             "🔱 <b>HERMES AI 오케스트라</b>\n"
-            "마스터 명령을 받아 전문 에이전트 토론 → 합의안 → 승인 대기로 진행합니다.\n"
-            "/task 내용: 개발 태스크 시작\n"
-            "/debate 주제: 전체 토론 소집\n"
+            "짧게 답하고, 목표 모드에서는 진행률을 계속 보고합니다.\n"
+            "/goal 목표: 끝까지 진행 보고\n"
+            "/progress: 목표 진행률\n"
+            "/task 내용: 태스크 합의안\n"
+            "/debate 주제: 에이전트 토론\n"
             "/review 코드: 코드 리뷰\n"
-            "/approve: 합의안 승인\n"
-            "/reject 이유: 재작업\n"
-            "/status: 현재 진행 상태\n"
-            "/agents: 에이전트 역할 안내\n"
-            "/stop: 전체 중단\n"
-            "/bind_agent_room: 현재 방 등록\n"
-            "일반 채팅도 HERMES가 태스크 여부를 판단해 처리합니다."
+            "/approve /reject 이유: 승인/재작업\n"
+            "/status /agents: 상태/목록\n"
+            "/stop: 중단\n"
+            "/bind_agent_room: 현재 방 등록"
         )
+
+
+def _compact_text(text: str, limit: int = 1600) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 20].rstrip() + "\n…요약 표시"
+
+
+def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

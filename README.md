@@ -110,13 +110,15 @@ Server B execution commands:
 Server A Hermes AI Orchestrator commands:
 
 - `/task <goal>`: start a development task; Hermes assigns agents and returns a consensus pending approval
+- `/goal <goal>`: set a persistent Hermes goal; the bot reports progress back to Telegram until the orchestration cycle completes
+- `/progress`: show current goal progress
 - `/debate <topic>`: summon the full agent team for a structured debate
 - `/review <code>`: ARES-led code review with implementation and optimization input
 - `/approve`: approve the pending consensus for follow-up execution by the Codex/operator workflow
 - `/reject <reason>`: reject the pending consensus and request rework
 - `/status`: current pending task, model status, and process-local usage
 - `/agents`: HERMES, ZEUS, ATHENA, APOLLO, ARES, HEPHAESTUS, ORACLE roles and assigned NVIDIA models
-- `/stop`: stop the current pending work and clear cache
+- `/stop`: stop the current pending work/goal and clear cache
 - `/bind_agent_room`: authorize the current Telegram room
 - hidden operator/debug commands still exist: `/model`, `/cost`, `/think`, `/free`, `/gpt`, `/nvidia`, `/code`, `/analyze`, `/stress`, `/backtest`, `/decision`
 - plain text messages are routed automatically when `AGENT_CONVERSATION_ENABLED=true`

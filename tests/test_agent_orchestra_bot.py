@@ -3,10 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 import os
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-from notify.telegram_analysis_bot import TelegramAnalysisCommandHandler
+from notify.telegram_analysis_bot import ANALYSIS_BOT_COMMANDS, TelegramAnalysisCommandHandler
 from server_a.hermes.agent_orchestra import AgentOrchestra
 from server_a.hermes.agent_router import AgentRouter
 
@@ -117,6 +118,23 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.handler.dispatch("approve"), "approved")
         self.assertEqual(await self.handler.dispatch("reject", "not enough"), "rejected:not enough")
         self.assertEqual(await self.handler.dispatch("stop"), "stopped")
+
+    async def test_goal_command_starts_background_runner(self):
+        async def fake_run_goal(chat_id, goal):
+            self.handler.goal_state["progress"] = 100
+            self.handler.goal_state["status"] = "완료"
+
+        self.handler._run_goal = fake_run_goal
+        reply = await self.handler.dispatch("goal", "새 기능 완성", "123")
+        await asyncio.sleep(0)
+        self.assertIn("목표 설정 완료", reply)
+        self.assertIn("100%", await self.handler.dispatch("progress"))
+
+    async def test_korean_menu_descriptions(self):
+        descriptions = " ".join(item["description"] for item in ANALYSIS_BOT_COMMANDS)
+        self.assertIn("목표", descriptions)
+        self.assertIn("진행", descriptions)
+        self.assertIn("상태", descriptions)
 
     async def test_v3_router_commands(self):
         self.assertEqual(await self.handler.dispatch("think", "hello"), "think:hello")

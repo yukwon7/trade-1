@@ -15,6 +15,7 @@ from server_a.hermes.clients.ai_client import HermesAIClient
 
 PROVIDER_ORDER = ("glm", "gemini", "openrouter", "openai", "nvidia")
 ALL_PROVIDERS = ("glm", "gemini", "openrouter", "deepseek", "grok", "openai", "nvidia")
+REPLY_MAX_CHARS = int(os.getenv("HERMES_REPLY_MAX_CHARS", "1200"))
 
 PROVIDER_ROLES = {
     "glm": "GLM-4-Flash: quick Korean draft, summary, light chat",
@@ -418,7 +419,7 @@ def _orchestra_system_prompt() -> str:
 
 
 def _format_reply(provider: str, result: dict[str, Any], used: list[str] | None = None) -> str:
-    reply = str(result.get("reply") or result.get("reason") or "응답이 비어 있습니다.")[:3500]
+    reply = _clip(str(result.get("reply") or result.get("reason") or "응답이 비어 있습니다."), REPLY_MAX_CHARS)
     persona = str(result.get("persona") or provider)
     commands = result.get("suggested_commands") or []
     extra = ""
@@ -431,7 +432,7 @@ def _format_reply(provider: str, result: dict[str, Any], used: list[str] | None 
 def _format_agent_text(agent_name: str, result: dict[str, Any]) -> str:
     spec = AGENT_TEAM[agent_name]
     reply = str(result.get("reply") or result.get("summary") or result.get("recommendation") or "응답이 비어 있습니다.")
-    return f"{spec.icon} <b>{agent_name}</b>\n{html.escape(reply[:3500])}"
+    return f"{spec.icon} <b>{agent_name}</b>\n{html.escape(_clip(reply, 900))}"
 
 
 def _format_task_start(message: str, agents: tuple[str, ...]) -> str:
@@ -456,7 +457,7 @@ def _format_workflow_report(
     for agent, result in round_one[:6]:
         spec = AGENT_TEAM[agent]
         summary = str(result.get("summary") or result.get("recommendation") or result.get("reply") or "의견 없음")
-        opinions.append(f"{spec.icon} <b>{agent}</b>: {html.escape(summary[:220])}")
+        opinions.append(f"{spec.icon} <b>{agent}</b>: {html.escape(_clip(summary, 140))}")
     consensus = str(
         synthesis.get("consensus") or synthesis.get("recommendation") or synthesis.get("reply") or "합의안 없음"
     )
@@ -468,12 +469,12 @@ def _format_workflow_report(
         "━━━━━━━━━━━━━━━\n"
         + "\n".join(opinions)
         + "\n━━━━━━━━━━━━━━━\n"
-        f"🔱 <b>HERMES 중재</b>: {html.escape(consensus[:900])}\n\n"
+        f"🔱 <b>HERMES 중재</b>: {html.escape(_clip(consensus, 650))}\n\n"
         "✅ <b>합의 완료 — 승인 대기</b>\n"
         "━━━━━━━━━━━━━━━\n"
-        f"📌 합의안: {html.escape(consensus[:1200])}\n"
+        f"📌 합의안: {html.escape(_clip(consensus, 800))}\n"
         f"🛡 ARES 검증: {html.escape(verdict)}"
-        + (f" — {html.escape(validation_summary[:300])}" if validation_summary else "")
+        + (f" — {html.escape(_clip(validation_summary, 180))}" if validation_summary else "")
         + f"\n🖥 서버 실행: {html.escape(server_action)}\n"
         "/approve — 실행 승인\n"
         "/reject 이유 — 재작업\n"
@@ -526,3 +527,10 @@ def _looks_like_code_task(message: str) -> bool:
 
 def _strip_html(text: str) -> str:
     return text.replace("<br>", "\n").replace("<pre>", "").replace("</pre>", "")
+
+
+def _clip(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 12)].rstrip() + " …"
