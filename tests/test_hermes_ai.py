@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from server_a.hermes.clients.ai_client import AIClientConfig, HermesAIClient, _parse_json_object
+from server_a.hermes.clients.ai_client import AIClientConfig, HermesAIClient, _model_env_suffix, _parse_json_object
 from server_a.hermes.gate import deployment_gate
 from server_a.hermes.orchestrator import apply_ai_suggestion
 
@@ -29,6 +29,25 @@ class HermesAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.config.provider, "nvidia")
         self.assertEqual(client.config.base_url, "https://integrate.api.nvidia.com/v1")
         self.assertEqual(client.config.model, "nvidia/test-model")
+
+    def test_nvidia_model_specific_keys_read_env(self):
+        env = {
+            "HERMES_AI_PROVIDER": "nvidia",
+            "NVIDIA_API_KEY": "",
+            "NVIDIA_MODEL": "openai/gpt-oss-120b,qwen/qwen3.5-397b-a17b,deepseek-ai/deepseek-v4-pro,z-ai/glm-5.1",
+            "NVIDIA_MODEL_API_KEY_OPENAI_GPT_OSS_120B": "key-a",
+            "NVIDIA_MODEL_API_KEY_QWEN_QWEN3_5_397B_A17B": "key-b",
+            "NVIDIA_MODEL_API_KEY_DEEPSEEK_AI_DEEPSEEK_V4_PRO": "key-c",
+            "NVIDIA_MODEL_API_KEY_Z_AI_GLM_5_1": "key-d",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            client = HermesAIClient.from_env()
+        self.assertTrue(client.config.enabled)
+        self.assertEqual(client.config.model_api_keys["openai/gpt-oss-120b"], "key-a")
+        self.assertEqual(client.config.model_api_keys["qwen/qwen3.5-397b-a17b"], "key-b")
+        self.assertEqual(client.config.model_api_keys["deepseek-ai/deepseek-v4-pro"], "key-c")
+        self.assertEqual(client.config.model_api_keys["z-ai/glm-5.1"], "key-d")
+        self.assertEqual(_model_env_suffix("qwen/qwen3.5-397b-a17b"), "QWEN_QWEN3_5_397B_A17B")
 
     def test_v3_providers_read_env(self):
         env = {

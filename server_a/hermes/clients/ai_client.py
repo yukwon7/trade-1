@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
@@ -21,10 +21,11 @@ class AIClientConfig:
     model: str
     timeout_seconds: int = 45
     api_style: str = "openai"
+    model_api_keys: dict[str, str] = field(default_factory=dict)
 
     @property
     def enabled(self) -> bool:
-        return bool(self.provider and self.api_key and self.base_url and self.model)
+        return bool(self.provider and self.base_url and self.model and (self.api_key or self.model_api_keys))
 
 
 class HermesAIClient:
@@ -85,11 +86,13 @@ class HermesAIClient:
                 model=os.getenv("GROK_MODEL", os.getenv("XAI_MODEL", "grok-3-mini")).strip(),
             ))
         if provider in {"nvidia", "nim", "nvidia_nim"}:
+            model = os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1").strip()
             return cls(AIClientConfig(
                 provider="nvidia",
                 api_key=os.getenv("NVIDIA_API_KEY", "").strip() or os.getenv("NIM_API_KEY", "").strip(),
                 base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/"),
-                model=os.getenv("NVIDIA_MODEL", "deepseek-ai/deepseek-r1").strip(),
+                model=model,
+                model_api_keys=_nvidia_model_api_keys(model),
             ))
         return cls(AIClientConfig(provider="", api_key="", base_url="", model=""))
 
@@ -103,21 +106,17 @@ class HermesAIClient:
             return None
         if self.config.api_style == "gemini":
             return await self._complete_json_gemini(system_prompt, payload)
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
         for model in _models(self.config.model):
-            body = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
-                ],
-                "temperature": 0.1,
-                "stream": False,
-                "response_format": {"type": "json_object"},
-            }
+            if self.config.provider == "nvidia" and _model_param("NVIDIA_MODEL_ENDPOINT", model, "").lower() == "responses":
+                parsed = await self._complete_json_responses_model(model, system_prompt, payload)
+                if parsed:
+                    return parsed
+                continue
+            headers = self._headers_for_model(model)
+            if not headers:
+                logger.warning("Hermes AI model skipped because no API key is configured model=%s provider=%s", model, self.config.provider)
+                continue
+            body = self._chat_body(model, system_prompt, payload)
             for attempt in range(2):
                 try:
                     async with aiohttp.ClientSession() as session:
@@ -138,6 +137,80 @@ class HermesAIClient:
                 except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, ValueError, RuntimeError) as exc:
                     logger.warning("Hermes AI suggestion failed model=%s attempt=%s provider=%s error=%s", model, attempt + 1, self.config.provider, exc)
                     await asyncio.sleep(1 + attempt)
+        return None
+
+    def _headers_for_model(self, model: str) -> dict[str, str]:
+        api_key = self.config.model_api_keys.get(model) or self.config.api_key
+        if not api_key:
+            return {}
+        return {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def _chat_body(self, model: str, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
+            ],
+            "temperature": _model_float_param("NVIDIA_MODEL_TEMPERATURE", model, 0.1) if self.config.provider == "nvidia" else 0.1,
+            "stream": False,
+        }
+        if self.config.provider == "nvidia":
+            body["max_tokens"] = _model_int_param("NVIDIA_MODEL_MAX_TOKENS", model, int(os.getenv("NVIDIA_MAX_TOKENS", "4096")))
+            body["top_p"] = _model_float_param("NVIDIA_MODEL_TOP_P", model, 1.0)
+            top_k = _model_int_param("NVIDIA_MODEL_TOP_K", model, -1)
+            if top_k >= 0:
+                body["top_k"] = top_k
+            repetition_penalty = _model_float_param("NVIDIA_MODEL_REPETITION_PENALTY", model, 0.0)
+            if repetition_penalty > 0:
+                body["repetition_penalty"] = repetition_penalty
+            if _model_param("NVIDIA_MODEL_THINKING", model, "").lower() in {"false", "0", "off"}:
+                body["chat_template_kwargs"] = {"thinking": False}
+        else:
+            body["response_format"] = {"type": "json_object"}
+        return body
+
+    async def _complete_json_responses_model(self, model: str, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        headers = self._headers_for_model(model)
+        if not headers:
+            logger.warning("Hermes AI responses model skipped because no API key is configured model=%s provider=%s", model, self.config.provider)
+            return None
+        prompt = (
+            f"{system_prompt}\n\n"
+            "Return a single valid JSON object only.\n"
+            f"Payload:\n{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+        )
+        body = {
+            "model": model,
+            "input": prompt,
+            "max_output_tokens": _model_int_param("NVIDIA_MODEL_MAX_OUTPUT_TOKENS", model, 4096),
+            "top_p": _model_float_param("NVIDIA_MODEL_TOP_P", model, 1.0),
+            "temperature": _model_float_param("NVIDIA_MODEL_TEMPERATURE", model, 1.0),
+            "stream": False,
+        }
+        for attempt in range(2):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{self.config.base_url}/responses",
+                        headers=headers,
+                        json=body,
+                        timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
+                    ) as response:
+                        text = await response.text()
+                        data = _parse_response_json(text)
+                        if response.status != 200:
+                            raise RuntimeError(f"AI HTTP {response.status}: {data}")
+                        content = _extract_responses_text(data)
+                        parsed = _parse_json_object(content)
+                        parsed["_model_used"] = model
+                        return parsed
+            except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, ValueError, RuntimeError) as exc:
+                logger.warning("Hermes AI responses failed model=%s attempt=%s provider=%s error=%s", model, attempt + 1, self.config.provider, exc)
+                await asyncio.sleep(1 + attempt)
         return None
 
     async def _complete_json_gemini(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -188,6 +261,59 @@ def _system_prompt() -> str:
 
 def _models(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _nvidia_model_api_keys(model_value: str) -> dict[str, str]:
+    keys: dict[str, str] = {}
+    for model in _models(model_value):
+        api_key = _model_param("NVIDIA_MODEL_API_KEY", model, "")
+        if api_key:
+            keys[model] = api_key
+    return keys
+
+
+def _model_param(prefix: str, model: str, default: str) -> str:
+    suffix = _model_env_suffix(model)
+    return os.getenv(f"{prefix}_{suffix}", default).strip()
+
+
+def _model_int_param(prefix: str, model: str, default: int) -> int:
+    value = _model_param(prefix, model, "")
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _model_float_param(prefix: str, model: str, default: float) -> float:
+    value = _model_param(prefix, model, "")
+    if not value:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _model_env_suffix(model: str) -> str:
+    suffix = re.sub(r"[^A-Za-z0-9]+", "_", model).strip("_").upper()
+    return re.sub(r"_+", "_", suffix)
+
+
+def _extract_responses_text(data: dict[str, Any]) -> str:
+    if isinstance(data.get("output_text"), str):
+        return data["output_text"]
+    chunks: list[str] = []
+    for item in data.get("output", []) or []:
+        for content in item.get("content", []) or []:
+            text = content.get("text")
+            if isinstance(text, str):
+                chunks.append(text)
+    if chunks:
+        return "\n".join(chunks)
+    raise ValueError("responses output did not contain text")
 
 
 def _parse_json_object(content: str) -> dict[str, Any]:
