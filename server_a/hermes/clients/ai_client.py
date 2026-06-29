@@ -20,6 +20,7 @@ class AIClientConfig:
     base_url: str
     model: str
     timeout_seconds: int = 45
+    api_style: str = "openai"
 
     @property
     def enabled(self) -> bool:
@@ -38,8 +39,30 @@ class HermesAIClient:
         self.config = config
 
     @classmethod
-    def from_env(cls) -> "HermesAIClient":
-        provider = os.getenv("HERMES_AI_PROVIDER", "").strip().lower()
+    def from_env(cls, provider: str | None = None) -> "HermesAIClient":
+        provider = (provider or os.getenv("HERMES_AI_PROVIDER", "")).strip().lower()
+        if provider in {"glm", "glm4", "glm-4", "zhipu"}:
+            return cls(AIClientConfig(
+                provider="glm",
+                api_key=os.getenv("GLM_API_KEY", "").strip(),
+                base_url=os.getenv("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip("/"),
+                model=os.getenv("GLM_MODEL", "glm-4-flash").strip(),
+            ))
+        if provider in {"gemini", "google"}:
+            return cls(AIClientConfig(
+                provider="gemini",
+                api_key=os.getenv("GEMINI_API_KEY", "").strip() or os.getenv("GOOGLE_API_KEY", "").strip(),
+                base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta").rstrip("/"),
+                model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip(),
+                api_style="gemini",
+            ))
+        if provider in {"openrouter", "qwen", "qwen3"}:
+            return cls(AIClientConfig(
+                provider="openrouter",
+                api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
+                base_url=os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/"),
+                model=os.getenv("OPENROUTER_MODEL", "qwen/qwen3-235b-a22b:free").strip(),
+            ))
         if provider == "deepseek":
             return cls(AIClientConfig(
                 provider="deepseek",
@@ -53,6 +76,13 @@ class HermesAIClient:
                 api_key=os.getenv("OPENAI_API_KEY", "").strip(),
                 base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
                 model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini").strip(),
+            ))
+        if provider in {"grok", "xai"}:
+            return cls(AIClientConfig(
+                provider="grok",
+                api_key=os.getenv("XAI_API_KEY", "").strip() or os.getenv("GROK_API_KEY", "").strip(),
+                base_url=os.getenv("XAI_BASE_URL", os.getenv("GROK_BASE_URL", "https://api.x.ai/v1")).rstrip("/"),
+                model=os.getenv("GROK_MODEL", os.getenv("XAI_MODEL", "grok-3-mini")).strip(),
             ))
         if provider in {"nvidia", "nim", "nvidia_nim"}:
             return cls(AIClientConfig(
@@ -71,6 +101,8 @@ class HermesAIClient:
     async def complete_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         if not self.config.enabled:
             return None
+        if self.config.api_style == "gemini":
+            return await self._complete_json_gemini(system_prompt, payload)
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -100,6 +132,41 @@ class HermesAIClient:
                             if response.status != 200:
                                 raise RuntimeError(f"AI HTTP {response.status}: {data}")
                             content = data["choices"][0]["message"]["content"]
+                            parsed = _parse_json_object(content)
+                            parsed["_model_used"] = model
+                            return parsed
+                except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, ValueError, RuntimeError) as exc:
+                    logger.warning("Hermes AI suggestion failed model=%s attempt=%s provider=%s error=%s", model, attempt + 1, self.config.provider, exc)
+                    await asyncio.sleep(1 + attempt)
+        return None
+
+    async def _complete_json_gemini(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        prompt = (
+            f"{system_prompt}\n\n"
+            "Return a single valid JSON object only.\n"
+            f"Payload:\n{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}"
+        )
+        headers = {"Content-Type": "application/json"}
+        for model in _models(self.config.model):
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.1},
+            }
+            url = f"{self.config.base_url}/models/{model}:generateContent?key={self.config.api_key}"
+            for attempt in range(2):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            url,
+                            headers=headers,
+                            json=body,
+                            timeout=aiohttp.ClientTimeout(total=self.config.timeout_seconds),
+                        ) as response:
+                            text = await response.text()
+                            data = _parse_response_json(text)
+                            if response.status != 200:
+                                raise RuntimeError(f"AI HTTP {response.status}: {data}")
+                            content = data["candidates"][0]["content"]["parts"][0]["text"]
                             parsed = _parse_json_object(content)
                             parsed["_model_used"] = model
                             return parsed

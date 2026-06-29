@@ -12,7 +12,8 @@ import aiohttp
 
 from analytics.router_backtester import run_backtest
 from analytics.stress_tester import run_stress_test, summary_text
-from server_a.hermes.agent_orchestra import AGENT_PERSONAS, AgentOrchestra
+from server_a.hermes.agent_router import AgentRouter
+from server_a.hermes.agent_orchestra import AgentOrchestra
 from server_a.hermes.main import run_hermes_cycle_async
 
 logger = logging.getLogger(__name__)
@@ -21,14 +22,18 @@ logger = logging.getLogger(__name__)
 ANALYSIS_BOT_COMMANDS = [
     {"command": "start", "description": "AI orchestra room help"},
     {"command": "bind_agent_room", "description": "bind this chat room to Hermes"},
-    {"command": "agent", "description": "AI orchestra chat"},
-    {"command": "dev", "description": "safe development request"},
-    {"command": "agents", "description": "list AI agents"},
-    {"command": "git_status", "description": "safe repository status"},
-    {"command": "run_tests", "description": "safe test run"},
-    {"command": "clear", "description": "clear chat memory"},
-    {"command": "decision", "description": "latest Hermes decision"},
-    {"command": "hermes_status", "description": "Hermes room status"},
+    {"command": "think", "description": "cross-check with free agents"},
+    {"command": "gpt", "description": "premium OpenAI route"},
+    {"command": "nvidia", "description": "NVIDIA NIM route"},
+    {"command": "free", "description": "free-agent route"},
+    {"command": "code", "description": "coding request route"},
+    {"command": "review", "description": "code review route"},
+    {"command": "urgent", "description": "urgent premium route"},
+    {"command": "status", "description": "orchestrator status"},
+    {"command": "model", "description": "active model list"},
+    {"command": "cost", "description": "API usage guard"},
+    {"command": "agents", "description": "agent roles"},
+    {"command": "clear", "description": "clear context cache"},
 ]
 
 
@@ -43,6 +48,7 @@ class TelegramAnalysisCommandHandler:
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.offset = 0
         self.agents = AgentOrchestra(settings.project_dir)
+        self.router = AgentRouter()
         config_dir = Path(getattr(settings, "config_dir", Path(settings.project_dir) / "config"))
         self.allowed_chats_path = config_dir / "analysis_allowed_chats.json"
 
@@ -104,7 +110,7 @@ class TelegramAnalysisCommandHandler:
         if not stripped.startswith("/"):
             if os.getenv("AGENT_CONVERSATION_ENABLED", "true").lower() != "true":
                 return
-            reply = await self.agents.chat(stripped, "chat")
+            reply = await self.router.auto(stripped)
             await self._send_to_chat(chat_id, reply[:4000])
             return
         raw, _, argument = stripped.partition(" ")
@@ -161,6 +167,26 @@ class TelegramAnalysisCommandHandler:
     async def dispatch(self, command: str, argument: str = "") -> str:
         if command in {"start", "help", "hermes_status"}:
             return self.status_text()
+        if command in {"model", "models"}:
+            return self.router.models_text()
+        if command == "status":
+            return self.router.status_text()
+        if command == "cost":
+            return self.router.cost_text()
+        if command == "agents":
+            return self.router.agents_text()
+        if command in {"think"}:
+            return await self.router.think(argument or "현재 상황을 교차검증해줘.")
+        if command in {"free"}:
+            return await self.router.free(argument or "현재 Hermes 상태를 요약해줘.")
+        if command in {"gpt", "urgent"}:
+            return await self.router.premium(argument or "중요 작업으로 판단하고 안전하게 검토해줘.")
+        if command == "nvidia":
+            return await self.router.ask_provider("nvidia", argument or "NVIDIA 모델 상태로 답변해줘.")
+        if command == "code":
+            return await self.router.code(argument or "현재 repo에서 다음 안전한 개발 작업을 제안해줘.")
+        if command == "review":
+            return await self.router.review(argument or "현재 코드 변경을 리뷰해줘.")
         if command in {"analyze", "decision", "strategies"}:
             report = await run_hermes_cycle_async(self.settings, False)
             return "<pre>" + html.escape(report["summary"]) + "</pre>"
@@ -182,30 +208,30 @@ class TelegramAnalysisCommandHandler:
         if command == "rollback_config":
             return "롤백은 안전상 scripts/rollback_server_b_config.sh 로 실행하세요."
         if command in {"agent", "chat"}:
-            return await self.agents.chat(argument or "현재 Hermes 상태를 요약해줘.", "chat")
+            return await self.router.auto(argument or "현재 Hermes 상태를 요약해줘.")
         if command == "dev":
-            return await self.agents.chat(argument or "현재 repo에서 다음 안전한 개발 작업을 제안해줘.", "dev")
-        if command == "agents":
-            return "🧠 <b>Agent personas</b>\n" + "\n".join(f"- {key}: {value}" for key, value in AGENT_PERSONAS.items())
+            return await self.router.code(argument or "현재 repo에서 다음 안전한 개발 작업을 제안해줘.")
         if command == "git_status":
             return await self.agents.run_safe_command("git_status")
         if command == "run_tests":
             return await self.agents.run_safe_command("tests")
         if command == "clear":
             self.agents.clear()
-            return "대화 기록을 초기화했습니다."
+            self.router.clear()
+            return "대화 기록과 오케스트레이터 캐시를 초기화했습니다."
         return f"❓ 지원하지 않는 분석 명령입니다: /{html.escape(command)}"
 
     @staticmethod
     def status_text() -> str:
         return (
             "🧠 <b>Hermes AI 오케스트라 방</b>\n"
-            "일반 채팅: AI 에이전트들이 대화/검토 후 답변\n"
-            "/agent 질문: 오케스트라 질의\n"
-            "/dev 개발요청: 안전한 개발 작업 요청\n"
-            "/agents: 에이전트 목록\n"
-            "/git_status /run_tests: 안전 점검\n"
-            "/decision: 최신 Hermes 판단\n"
+            "일반 채팅: Hermes가 난이도에 맞춰 AI 모델을 라우팅\n"
+            "/think 질문: GLM/Gemini/Qwen 교차검증\n"
+            "/free 질문: 무료 에이전트 우선\n"
+            "/gpt 질문 또는 /urgent 요청: 프리미엄 경로\n"
+            "/nvidia 질문: NVIDIA 직접 호출\n"
+            "/code 요청 /review 코드: 개발/리뷰 경로\n"
+            "/model /status /cost /agents: 상태 확인\n"
             "/bind_agent_room: 현재 방 등록\n"
-            "/clear: 대화 기록 초기화"
+            "/clear: 컨텍스트/캐시 초기화"
         )

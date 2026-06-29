@@ -30,6 +30,21 @@ class HermesAITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.config.base_url, "https://integrate.api.nvidia.com/v1")
         self.assertEqual(client.config.model, "nvidia/test-model")
 
+    def test_v3_providers_read_env(self):
+        env = {
+            "GLM_API_KEY": "glm-key",
+            "GEMINI_API_KEY": "gemini-key",
+            "OPENROUTER_API_KEY": "or-key",
+            "XAI_API_KEY": "xai-key",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            self.assertTrue(HermesAIClient.from_env("glm").config.enabled)
+            gemini = HermesAIClient.from_env("gemini").config
+            self.assertTrue(gemini.enabled)
+            self.assertEqual(gemini.api_style, "gemini")
+            self.assertEqual(HermesAIClient.from_env("openrouter").config.provider, "openrouter")
+            self.assertEqual(HermesAIClient.from_env("grok").config.provider, "grok")
+
     def test_ai_json_parser_extracts_object_from_reasoning_text(self):
         parsed = _parse_json_object('thinking...\\n{"action":"KEEP","reason":"ok"}\\nfinal')
         self.assertEqual(parsed["action"], "KEEP")

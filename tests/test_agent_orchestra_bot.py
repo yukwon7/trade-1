@@ -32,6 +32,47 @@ class FakeAgents:
         self.cleared = True
 
 
+class FakeRouter:
+    def __init__(self):
+        self.cleared = False
+
+    async def auto(self, message):
+        return f"auto:{message}"
+
+    async def code(self, message):
+        return f"code:{message}"
+
+    async def think(self, message):
+        return f"think:{message}"
+
+    async def free(self, message):
+        return f"free:{message}"
+
+    async def premium(self, message):
+        return f"premium:{message}"
+
+    async def ask_provider(self, provider, message):
+        return f"{provider}:{message}"
+
+    async def review(self, message):
+        return f"review:{message}"
+
+    def models_text(self):
+        return "models"
+
+    def status_text(self):
+        return "status"
+
+    def cost_text(self):
+        return "cost"
+
+    def agents_text(self):
+        return "agents"
+
+    def clear(self):
+        self.cleared = True
+
+
 class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -41,6 +82,7 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         os.environ["TELEGRAM_ANALYSIS_ALLOWED_CHAT_IDS"] = "123"
         self.handler = TelegramAnalysisCommandHandler(None, "token", "123", self.notifier, settings)
         self.handler.agents = FakeAgents()
+        self.handler.router = FakeRouter()
 
     async def asyncTearDown(self):
         if self.old_allowed is None:
@@ -50,8 +92,21 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.tmp.cleanup()
 
     async def test_agent_and_dev_commands(self):
-        self.assertEqual(await self.handler.dispatch("agent", "hello"), "chat:hello")
-        self.assertEqual(await self.handler.dispatch("dev", "fix tests"), "dev:fix tests")
+        self.assertEqual(await self.handler.dispatch("agent", "hello"), "auto:hello")
+        self.assertEqual(await self.handler.dispatch("dev", "fix tests"), "code:fix tests")
+
+    async def test_v3_router_commands(self):
+        self.assertEqual(await self.handler.dispatch("think", "hello"), "think:hello")
+        self.assertEqual(await self.handler.dispatch("free", "hello"), "free:hello")
+        self.assertEqual(await self.handler.dispatch("gpt", "hello"), "premium:hello")
+        self.assertEqual(await self.handler.dispatch("urgent", "hello"), "premium:hello")
+        self.assertEqual(await self.handler.dispatch("nvidia", "hello"), "nvidia:hello")
+        self.assertEqual(await self.handler.dispatch("code", "hello"), "code:hello")
+        self.assertEqual(await self.handler.dispatch("review", "hello"), "review:hello")
+        self.assertEqual(await self.handler.dispatch("model"), "models")
+        self.assertEqual(await self.handler.dispatch("status"), "status")
+        self.assertEqual(await self.handler.dispatch("cost"), "cost")
+        self.assertEqual(await self.handler.dispatch("agents"), "agents")
 
     async def test_safe_commands(self):
         self.assertEqual(await self.handler.dispatch("git_status"), "safe:git_status")
@@ -60,7 +115,7 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
     async def test_plain_text_routes_to_agent(self):
         update = {"message": {"chat": {"id": "123"}, "text": "안녕"}}
         await self.handler.handle_update(update)
-        self.assertEqual(self.notifier.messages[-1], "chat:안녕")
+        self.assertEqual(self.notifier.messages[-1], "auto:안녕")
 
     async def test_bind_agent_room_registers_new_chat(self):
         sent = []

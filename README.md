@@ -31,17 +31,24 @@ scripts/run_analysis_cycle.sh
 ```
 
 Optional AI orchestration is Server-A-only. If no AI key is configured, Hermes runs deterministic rules only.
+The Telegram analysis bot can also run as the Hermes AI Orchestrator room.
 
 Supported `.env` variables:
 
 ```bash
-HERMES_AI_PROVIDER=deepseek   # or openai, nvidia
+HERMES_AI_PROVIDER=nvidia
+GLM_API_KEY=...
+GLM_MODEL=glm-4-flash
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.5-flash
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=qwen/qwen3-235b-a22b:free
 DEEPSEEK_API_KEY=...
 DEEPSEEK_MODEL=deepseek-chat
-# or
+XAI_API_KEY=...
+GROK_MODEL=grok-3-mini
 OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-mini
-# or
 NVIDIA_API_KEY=...
 NVIDIA_MODEL=deepseek-ai/deepseek-r1
 # comma-separated fallback models are also supported:
@@ -95,18 +102,22 @@ Server B execution commands:
 - `/config`: active config and validation errors
 - `/health`: execution health snapshot
 
-Server A analysis commands:
+Server A Hermes AI Orchestrator commands:
 
-- `/analyze`, `/daily`, `/weekly`, `/monthly`
-- `/stress`, `/backtest`
-- `/strategies`, `/decision`
-- `/deploy_config`, `/rollback_config`, `/hermes_status`
-- `/agent <message>`: Hermes AI agent chat
-- `/dev <goal>`: safe development assistant; proposes plans/checks, no arbitrary shell
-- `/agents`: list agent personas
-- `/git_status`, `/run_tests`: safe allowlisted repo checks
-- `/clear`: clear agent chat history
-- plain text messages are routed to the Server-A AI agent room when `AGENT_CONVERSATION_ENABLED=true`
+- `/think <message>`: cross-check with GLM/Gemini/OpenRouter, then synthesize
+- `/free <message>`: free-agent-first route
+- `/gpt <message>` or `/urgent <message>`: premium route, OpenAI first with fallbacks
+- `/nvidia <message>`: NVIDIA NIM direct route
+- `/code <goal>`: coding/development route
+- `/review <code>`: review route
+- `/model`: configured provider/model status; never prints key values
+- `/status`: orchestrator runtime usage and provider status
+- `/cost`: local usage guard summary
+- `/agents`: provider roles and internal review personas
+- `/bind_agent_room`: authorize the current Telegram room
+- `/clear`: clear in-process conversation cache
+- hidden legacy analysis commands still exist for operators: `/analyze`, `/stress`, `/backtest`, `/decision`
+- plain text messages are routed automatically when `AGENT_CONVERSATION_ENABLED=true`
 
 Server A can use a separate Telegram bot token:
 
