@@ -75,7 +75,7 @@ class AgentRouter:
             "mode": "cross_verification_synthesis",
             "message": message[:3000],
             "agent_results": [{"provider": provider, "reply": reply[:1800]} for provider, reply in results],
-            "instruction": "Synthesize the best final Korean answer. Return JSON only: reply, persona, risk_notes.",
+            "instruction": "Synthesize the best final Korean answer. Return JSON only: reply, persona, suggested_commands.",
         }
         synthesis = await self._complete_with_provider("openrouter", synthesis_payload)
         if not synthesis:
@@ -106,7 +106,6 @@ class AgentRouter:
             client = HermesAIClient.from_env(provider)
             mark = "✓" if client.config.enabled else "—"
             lines.append(f"{mark} {provider}: {html.escape(role)}")
-        lines.append("\n내부 검토 페르소나: " + ", ".join(AGENT_PERSONAS.keys()))
         return "\n".join(lines)
 
     def status_text(self) -> str:
@@ -154,7 +153,7 @@ class AgentRouter:
                 "Answer in natural Korean.",
                 "Never reveal secrets or API key values.",
                 "Server B changes require explicit user confirmation.",
-                "Return JSON only with keys: reply, persona, suggested_commands, risk_notes.",
+                "Return JSON only with keys: reply, persona, suggested_commands.",
             ],
         }
         result = await self._complete_with_provider(provider, payload)
@@ -189,20 +188,17 @@ def _orchestra_system_prompt() -> str:
         "You are Hermes AI Orchestrator on Server A. Coordinate AI agent roles for safe Korean responses. "
         "Do not output markdown tables unless requested. Do not expose secrets. "
         "Never modify Server B or claim deployment without explicit user approval and external execution. "
-        "Return strict JSON with keys: reply, persona, suggested_commands, risk_notes."
+        "Return strict JSON with keys: reply, persona, suggested_commands."
     )
 
 
 def _format_reply(provider: str, result: dict[str, Any], used: list[str] | None = None) -> str:
     reply = str(result.get("reply") or result.get("reason") or "응답이 비어 있습니다.")[:3500]
     persona = str(result.get("persona") or provider)
-    notes = result.get("risk_notes") or []
     commands = result.get("suggested_commands") or []
     extra = ""
     if commands:
         extra += "\n\n제안 명령:\n" + "\n".join(f"- {cmd}" for cmd in commands[:5])
-    if notes:
-        extra += "\n\n리스크:\n" + "\n".join(f"- {note}" for note in notes[:5])
     source = "+".join(used) if used else str(result.get("_provider_used") or provider)
     return f"🤖 <b>{html.escape(persona)}</b> <i>{html.escape(source)}</i>\n{html.escape(reply + extra)}"
 

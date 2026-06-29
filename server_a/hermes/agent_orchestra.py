@@ -11,10 +11,8 @@ from server_a.hermes.clients.ai_client import HermesAIClient
 
 
 AGENT_PERSONAS = {
-    "hermes": "trading-system strategist. Focus on decisions, risk, and config safety.",
+    "hermes": "AI orchestrator. Focus on clear decisions, model routing, and config safety.",
     "dev": "senior Python deployment engineer. Focus on safe repo changes and tests.",
-    "risk": "risk manager. Block unsafe leverage, secret exposure, and direct live changes.",
-    "qa": "test engineer. Ask for reproducible checks and rollback paths.",
 }
 
 SAFE_COMMANDS = {
@@ -44,7 +42,7 @@ class AgentOrchestra:
                 "Do not reveal or request secrets",
                 "Server B execution changes require explicit config-only deployment",
                 "For development, propose patch/test plan unless safe command is explicitly requested",
-                "Return JSON only: reply, persona, suggested_commands, risk_notes",
+                "Return JSON only: reply, persona, suggested_commands",
             ],
         }
         result = await client.complete_json(_agent_system_prompt(), payload)
@@ -52,14 +50,11 @@ class AgentOrchestra:
             return "AI 응답을 받지 못했습니다. 로그와 provider 상태를 확인하세요."
         reply = str(result.get("reply") or result.get("reason") or "응답이 비어 있습니다.")[:3500]
         persona = str(result.get("persona") or "hermes")
-        notes = result.get("risk_notes") or []
         commands = result.get("suggested_commands") or []
         self.history.append({"user": message[:1000], "assistant": reply[:1000]})
         extra = ""
         if commands:
             extra += "\n\n제안 명령:\n" + "\n".join(f"- {cmd}" for cmd in commands[:5])
-        if notes:
-            extra += "\n\n리스크:\n" + "\n".join(f"- {note}" for note in notes[:5])
         return f"🤖 <b>{persona}</b>\n{_escape(reply + extra)}"
 
     def clear(self) -> None:
@@ -89,7 +84,7 @@ class AgentOrchestra:
 
 def _agent_system_prompt() -> str:
     return (
-        "You are Hermes Agent Orchestra on Server A. Use personas hermes/dev/risk/qa. "
+        "You are Hermes Agent Orchestra on Server A. Use personas hermes/dev. "
         "Help with trading-system analysis and safe development. Never expose secrets. "
         "Never claim to modify Server B directly. Return strict JSON."
     )

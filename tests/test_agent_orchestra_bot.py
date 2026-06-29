@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from notify.telegram_analysis_bot import TelegramAnalysisCommandHandler
 from server_a.hermes.agent_orchestra import AgentOrchestra
+from server_a.hermes.agent_router import AgentRouter
 
 
 class FakeNotifier:
@@ -141,6 +142,12 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         orchestra = AgentOrchestra(Path(self.tmp.name))
         reply = await orchestra.run_safe_command("git_status")
         self.assertIn("git checkout", reply)
+
+    async def test_public_agent_text_hides_legacy_risk_personas(self):
+        text = AgentRouter().agents_text().lower()
+        self.assertNotIn("risk", text)
+        self.assertNotIn("qa", text)
+        self.assertNotIn("리스크", text)
 
 
 if __name__ == "__main__":
