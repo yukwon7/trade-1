@@ -12,3 +12,4 @@
 - [AUTONOMOUS] 2026-06-29T00:00:00Z | server_a/hermes/env_manager.py,self_tuner.py | allow safe optional .env defaults and runtime tuning | append-only startup defaults plus restricted 6h self-tune loop.
 - [AUTONOMOUS] 2026-06-29T00:00:00Z | server_a/hermes/autonomy.py,analysis_bot.py | monitor and commit support for autonomous changes | added monitor notification helper, changelog helper, git auto-commit utility, and hermes.log file logging.
 - [AUTONOMOUS] 2026-06-29T00:00:00Z | server_a/hermes/agent_orchestra.py,notify/telegram_analysis_bot.py | second Telegram bot should become AI agent room | added agent chat, dev assistant mode, personas, safe git status and test commands.
+- [USER] 2026-06-29T00:00:00Z | notify/telegram_analysis_bot.py | second Telegram room did not recognize chat and old commands remained | added room binding, config-backed allowed chats, direct chat routing, and AI-orchestra-first command menu.

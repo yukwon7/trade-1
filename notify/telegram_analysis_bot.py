@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -17,23 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 ANALYSIS_BOT_COMMANDS = [
-    {"command": "analyze", "description": "run Hermes analysis cycle"},
-    {"command": "daily", "description": "daily performance report"},
-    {"command": "weekly", "description": "weekly performance report"},
-    {"command": "monthly", "description": "monthly performance report"},
-    {"command": "stress", "description": "run stress test"},
-    {"command": "backtest", "description": "run stress-period backtest"},
-    {"command": "strategies", "description": "strategy decision status"},
+    {"command": "start", "description": "AI orchestra room help"},
+    {"command": "bind_agent_room", "description": "bind this chat room to Hermes"},
+    {"command": "agent", "description": "AI orchestra chat"},
+    {"command": "dev", "description": "safe development request"},
+    {"command": "agents", "description": "list AI agents"},
+    {"command": "git_status", "description": "safe repository status"},
+    {"command": "run_tests", "description": "safe test run"},
+    {"command": "clear", "description": "clear chat memory"},
     {"command": "decision", "description": "latest Hermes decision"},
-    {"command": "deploy_config", "description": "deploy generated config to Server B"},
-    {"command": "rollback_config", "description": "rollback Server B config"},
-    {"command": "hermes_status", "description": "Hermes status"},
-    {"command": "agent", "description": "AI agent chat"},
-    {"command": "dev", "description": "safe development assistant"},
-    {"command": "agents", "description": "list agent personas"},
-    {"command": "git_status", "description": "safe git status"},
-    {"command": "run_tests", "description": "safe unit test run"},
-    {"command": "clear", "description": "clear agent chat history"},
+    {"command": "hermes_status", "description": "Hermes room status"},
 ]
 
 
@@ -48,6 +43,8 @@ class TelegramAnalysisCommandHandler:
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.offset = 0
         self.agents = AgentOrchestra(settings.project_dir)
+        config_dir = Path(getattr(settings, "config_dir", Path(settings.project_dir) / "config"))
+        self.allowed_chats_path = config_dir / "analysis_allowed_chats.json"
 
     async def run(self, stop_event: asyncio.Event) -> None:
         configured = False
@@ -86,14 +83,29 @@ class TelegramAnalysisCommandHandler:
     async def handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message") or {}
         text = message.get("text")
-        if str((message.get("chat") or {}).get("id")) != self.chat_id or not isinstance(text, str):
+        chat = message.get("chat") or {}
+        chat_id = str(chat.get("id", ""))
+        if not isinstance(text, str):
             return
         stripped = text.strip()
+        raw_command = stripped.split(" ", 1)[0].split("@", 1)[0].lower() if stripped.startswith("/") else ""
+        if not self._is_allowed_chat(chat_id):
+            if raw_command == "/bind_agent_room":
+                reply = self._bind_agent_room(chat_id)
+                await self._send_to_chat(chat_id, reply)
+                return
+            logger.info(
+                "ignored unauthorized analysis chat id=%s type=%s title=%s",
+                chat_id,
+                chat.get("type", ""),
+                chat.get("title", ""),
+            )
+            return
         if not stripped.startswith("/"):
             if os.getenv("AGENT_CONVERSATION_ENABLED", "true").lower() != "true":
                 return
             reply = await self.agents.chat(stripped, "chat")
-            await self.notifier.send(reply[:4000])
+            await self._send_to_chat(chat_id, reply[:4000])
             return
         raw, _, argument = stripped.partition(" ")
         command = raw[1:].split("@", 1)[0].lower()
@@ -103,7 +115,48 @@ class TelegramAnalysisCommandHandler:
             logger.exception("telegram analysis command failed: /%s", command)
             reply = "⚠️ 분석 명령 처리 중 오류가 발생했습니다. Server A 로그를 확인하세요."
         if reply:
-            await self.notifier.send(reply[:4000])
+            await self._send_to_chat(chat_id, reply[:4000])
+
+    async def _send_to_chat(self, chat_id: str, text: str) -> None:
+        if chat_id == self.chat_id:
+            await self.notifier.send(text)
+            return
+        await self._api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+
+    def _allowed_chat_ids(self) -> set[str]:
+        raw = os.getenv("TELEGRAM_ANALYSIS_ALLOWED_CHAT_IDS", self.chat_id).strip()
+        allowed = {item.strip() for item in raw.split(",") if item.strip()} if raw else {self.chat_id}
+        if self.allowed_chats_path.exists():
+            try:
+                payload = json.loads(self.allowed_chats_path.read_text(encoding="utf-8"))
+                allowed.update(str(item) for item in payload.get("chat_ids", []) if str(item).strip())
+            except Exception as exc:
+                logger.warning("failed to read allowed analysis chats: %s", exc)
+        return allowed
+
+    def _is_allowed_chat(self, chat_id: str) -> bool:
+        allowed = self._allowed_chat_ids()
+        return "*" in allowed or chat_id in allowed
+
+    def _bind_agent_room(self, chat_id: str) -> str:
+        allowed = self._allowed_chat_ids()
+        if "*" in allowed or chat_id in allowed:
+            return "이미 이 방은 Hermes AI 오케스트라 방으로 등록되어 있습니다."
+        allowed.add(chat_id)
+        self._write_allowed_chats(sorted(allowed))
+        logger.info("bound telegram analysis room chat id=%s", chat_id)
+        return (
+            "✅ 이 방을 Hermes AI 오케스트라 방으로 등록했습니다.\n"
+            "이제 일반 채팅은 AI 에이전트 대화로 처리되고, /dev 로 개발 요청을 보낼 수 있습니다."
+        )
+
+    def _write_allowed_chats(self, chat_ids: list[str]) -> None:
+        self.allowed_chats_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "chat_ids": chat_ids,
+            "source": "telegram_bind_agent_room",
+        }
+        self.allowed_chats_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     async def dispatch(self, command: str, argument: str = "") -> str:
         if command in {"start", "help", "hermes_status"}:
@@ -146,9 +199,13 @@ class TelegramAnalysisCommandHandler:
     @staticmethod
     def status_text() -> str:
         return (
-            "🧠 <b>Server A Hermes</b>\n"
-            "/analyze /daily /weekly /monthly /stress /backtest\n"
-            "/strategies /decision /deploy_config /rollback_config /hermes_status\n"
-            "/agent 질문 /dev 개발요청 /agents /git_status /run_tests /clear\n"
-            "일반 메시지도 AI 에이전트 대화로 처리됩니다."
+            "🧠 <b>Hermes AI 오케스트라 방</b>\n"
+            "일반 채팅: AI 에이전트들이 대화/검토 후 답변\n"
+            "/agent 질문: 오케스트라 질의\n"
+            "/dev 개발요청: 안전한 개발 작업 요청\n"
+            "/agents: 에이전트 목록\n"
+            "/git_status /run_tests: 안전 점검\n"
+            "/decision: 최신 Hermes 판단\n"
+            "/bind_agent_room: 현재 방 등록\n"
+            "/clear: 대화 기록 초기화"
         )
