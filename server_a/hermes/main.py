@@ -8,6 +8,7 @@ from pathlib import Path
 
 from config import Settings
 from server_a.hermes.cache import JsonCache
+from server_a.hermes.env_manager import startup_env_check
 from server_a.hermes.gate import deployment_gate
 from server_a.hermes.orchestrator import apply_ai_suggestion
 from server_a.hermes.router import build_decision
@@ -18,6 +19,8 @@ def run_hermes_cycle(settings: Settings | None = None, persist: bool = True, use
 
 
 async def run_hermes_cycle_async(settings: Settings | None = None, persist: bool = True, use_ai: bool = True) -> dict:
+    if settings is None:
+        await startup_env_check()
     settings = settings or Settings.from_env()
     result = build_decision(settings, current_strategy_ids=_current_strategy_ids(settings.config_dir))
     if use_ai:
