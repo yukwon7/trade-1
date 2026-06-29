@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 from typing import Any
 
 import aiohttp
 
 from analytics.router_backtester import run_backtest
 from analytics.stress_tester import run_stress_test, summary_text
+from server_a.hermes.agent_orchestra import AGENT_PERSONAS, AgentOrchestra
 from server_a.hermes.main import run_hermes_cycle_async
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,12 @@ ANALYSIS_BOT_COMMANDS = [
     {"command": "deploy_config", "description": "deploy generated config to Server B"},
     {"command": "rollback_config", "description": "rollback Server B config"},
     {"command": "hermes_status", "description": "Hermes status"},
+    {"command": "agent", "description": "AI agent chat"},
+    {"command": "dev", "description": "safe development assistant"},
+    {"command": "agents", "description": "list agent personas"},
+    {"command": "git_status", "description": "safe git status"},
+    {"command": "run_tests", "description": "safe unit test run"},
+    {"command": "clear", "description": "clear agent chat history"},
 ]
 
 
@@ -39,6 +47,7 @@ class TelegramAnalysisCommandHandler:
         self.settings = settings
         self.api_url = f"https://api.telegram.org/bot{token}"
         self.offset = 0
+        self.agents = AgentOrchestra(settings.project_dir)
 
     async def run(self, stop_event: asyncio.Event) -> None:
         configured = False
@@ -77,9 +86,16 @@ class TelegramAnalysisCommandHandler:
     async def handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message") or {}
         text = message.get("text")
-        if str((message.get("chat") or {}).get("id")) != self.chat_id or not isinstance(text, str) or not text.startswith("/"):
+        if str((message.get("chat") or {}).get("id")) != self.chat_id or not isinstance(text, str):
             return
-        raw, _, argument = text.strip().partition(" ")
+        stripped = text.strip()
+        if not stripped.startswith("/"):
+            if os.getenv("AGENT_CONVERSATION_ENABLED", "true").lower() != "true":
+                return
+            reply = await self.agents.chat(stripped, "chat")
+            await self.notifier.send(reply[:4000])
+            return
+        raw, _, argument = stripped.partition(" ")
         command = raw[1:].split("@", 1)[0].lower()
         try:
             reply = await self.dispatch(command, argument.strip())
@@ -112,6 +128,19 @@ class TelegramAnalysisCommandHandler:
             return "배포는 안전상 scripts/deploy_server_b_config_only.sh 로 실행하세요."
         if command == "rollback_config":
             return "롤백은 안전상 scripts/rollback_server_b_config.sh 로 실행하세요."
+        if command in {"agent", "chat"}:
+            return await self.agents.chat(argument or "현재 Hermes 상태를 요약해줘.", "chat")
+        if command == "dev":
+            return await self.agents.chat(argument or "현재 repo에서 다음 안전한 개발 작업을 제안해줘.", "dev")
+        if command == "agents":
+            return "🧠 <b>Agent personas</b>\n" + "\n".join(f"- {key}: {value}" for key, value in AGENT_PERSONAS.items())
+        if command == "git_status":
+            return await self.agents.run_safe_command("git_status")
+        if command == "run_tests":
+            return await self.agents.run_safe_command("tests")
+        if command == "clear":
+            self.agents.clear()
+            return "대화 기록을 초기화했습니다."
         return f"❓ 지원하지 않는 분석 명령입니다: /{html.escape(command)}"
 
     @staticmethod
@@ -119,5 +148,7 @@ class TelegramAnalysisCommandHandler:
         return (
             "🧠 <b>Server A Hermes</b>\n"
             "/analyze /daily /weekly /monthly /stress /backtest\n"
-            "/strategies /decision /deploy_config /rollback_config /hermes_status"
+            "/strategies /decision /deploy_config /rollback_config /hermes_status\n"
+            "/agent 질문 /dev 개발요청 /agents /git_status /run_tests /clear\n"
+            "일반 메시지도 AI 에이전트 대화로 처리됩니다."
         )

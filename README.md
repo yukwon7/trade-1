@@ -101,6 +101,12 @@ Server A analysis commands:
 - `/stress`, `/backtest`
 - `/strategies`, `/decision`
 - `/deploy_config`, `/rollback_config`, `/hermes_status`
+- `/agent <message>`: Hermes AI agent chat
+- `/dev <goal>`: safe development assistant; proposes plans/checks, no arbitrary shell
+- `/agents`: list agent personas
+- `/git_status`, `/run_tests`: safe allowlisted repo checks
+- `/clear`: clear agent chat history
+- plain text messages are routed to the Server-A AI agent room when `AGENT_CONVERSATION_ENABLED=true`
 
 Server A can use a separate Telegram bot token:
 

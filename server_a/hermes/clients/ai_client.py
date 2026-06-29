@@ -66,6 +66,11 @@ class HermesAIClient:
     async def suggest(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         if not self.config.enabled:
             return None
+        return await self.complete_json(_system_prompt(), payload)
+
+    async def complete_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        if not self.config.enabled:
+            return None
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
@@ -74,7 +79,7 @@ class HermesAIClient:
             body = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": _system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))},
                 ],
                 "temperature": 0.1,
