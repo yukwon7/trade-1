@@ -90,6 +90,14 @@ class FakeRouter:
         self.cleared = True
 
 
+class FakeExecutor:
+    def exec_status(self):
+        return "exec_status"
+
+    async def run(self, command, argument=""):
+        return f"exec:{command}:{argument}"
+
+
 class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -100,6 +108,7 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.handler = TelegramAnalysisCommandHandler(None, "token", "123", self.notifier, settings)
         self.handler.agents = FakeAgents()
         self.handler.router = FakeRouter()
+        self.handler.executor = FakeExecutor()
 
     async def asyncTearDown(self):
         if self.old_allowed is None:
@@ -157,6 +166,7 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         descriptions = " ".join(item["description"] for item in ANALYSIS_BOT_COMMANDS)
         self.assertIn("목표", descriptions)
         self.assertIn("Codex", descriptions)
+        self.assertIn("실행", descriptions)
         self.assertIn("진행", descriptions)
         self.assertIn("상태", descriptions)
 
@@ -174,8 +184,11 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.handler.dispatch("agents"), "agents")
 
     async def test_safe_commands(self):
-        self.assertEqual(await self.handler.dispatch("git_status"), "safe:git_status")
-        self.assertEqual(await self.handler.dispatch("run_tests"), "safe:tests")
+        self.assertEqual(await self.handler.dispatch("git_status"), "exec:git_status:")
+        self.assertEqual(await self.handler.dispatch("run_tests"), "exec:run_tests:")
+        self.assertEqual(await self.handler.dispatch("server_status"), "exec:server_status:")
+        self.assertEqual(await self.handler.dispatch("logs", "hermes-analysis-bot.service"), "exec:logs:hermes-analysis-bot.service")
+        self.assertEqual(await self.handler.dispatch("exec_status"), "exec_status")
 
     async def test_plain_text_routes_to_agent(self):
         update = {"message": {"chat": {"id": "123"}, "text": "안녕"}}

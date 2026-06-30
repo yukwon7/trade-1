@@ -46,18 +46,55 @@ class CodexBridge:
         if task_id:
             tasks = [task for task in tasks if task["id"] == task_id]
         if not tasks:
-            return "Codex 작업이 없습니다."
+            return "Codex 작업이 없습니다.\n" + self.diagnostic_text()
         lines = ["🧩 <b>Codex 작업 큐</b>"]
         for task in tasks[-8:]:
             lines.append(
                 f"- {task['id']} | {task['status']} | {task['source']} | {task['prompt'][:80]}"
             )
-        lines.append(f"Codex CLI: {'사용 가능' if self.codex_available() else 'Server A에 없음'}")
+        lines.append(self.diagnostic_text())
         return "\n".join(lines)
 
     def codex_available(self) -> bool:
         command = os.getenv("CODEX_CLI_COMMAND", "codex").split()[0]
         return bool(shutil.which(command))
+
+    def direct_run_enabled(self) -> bool:
+        return os.getenv("HERMES_CODEX_DIRECT_RUN", "false").lower() == "true"
+
+    def auth_status(self) -> str:
+        command = os.getenv("CODEX_CLI_COMMAND", "codex").split()[0]
+        if not shutil.which(command):
+            return "cli_missing"
+        try:
+            completed = subprocess.run(
+                [command, "doctor"],
+                cwd=self.project_dir,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+        except Exception:
+            return "unknown"
+        output = f"{completed.stdout}\n{completed.stderr}".lower()
+        if "no codex credentials" in output or "codex login" in output or "provide an api key" in output:
+            return "auth_missing"
+        if completed.returncode == 0:
+            return "ready"
+        return "unknown"
+
+    def diagnostic_text(self) -> str:
+        cli = "있음" if self.codex_available() else "없음"
+        direct = "켜짐" if self.direct_run_enabled() else "꺼짐"
+        auth_map = {
+            "ready": "인증됨",
+            "auth_missing": "인증 필요",
+            "cli_missing": "CLI 없음",
+            "unknown": "확인 불가",
+        }
+        auth = auth_map.get(self.auth_status(), "확인 불가")
+        return f"Codex CLI: {cli} | 직접 실행: {direct} | 인증: {auth}"
 
     def run_once(self) -> dict[str, Any]:
         tasks = self._read()
@@ -67,7 +104,7 @@ class CodexBridge:
         return {"status": "idle", "message": "queued task not found"}
 
     def _run_task(self, task: dict[str, Any], tasks: list[dict[str, Any]]) -> dict[str, Any]:
-        if os.getenv("HERMES_CODEX_DIRECT_RUN", "false").lower() != "true":
+        if not self.direct_run_enabled():
             task["status"] = "blocked"
             task["error"] = "HERMES_CODEX_DIRECT_RUN is not true"
             task["updated_at"] = _now()
@@ -76,6 +113,13 @@ class CodexBridge:
         if not self.codex_available():
             task["status"] = "blocked"
             task["error"] = "codex CLI not found on this server"
+            task["updated_at"] = _now()
+            self._write(tasks)
+            return task
+        auth = self.auth_status()
+        if auth != "ready":
+            task["status"] = "blocked"
+            task["error"] = "Codex CLI authentication is required on Server A"
             task["updated_at"] = _now()
             self._write(tasks)
             return task
@@ -91,8 +135,9 @@ class CodexBridge:
             str(self.project_dir),
             "--sandbox",
             os.getenv("CODEX_SANDBOX", "workspace-write"),
-            "--ask-for-approval",
-            "never",
+            "-c",
+            'approval_policy="never"',
+            "--skip-git-repo-check",
             "--output-last-message",
             str(output_path),
             "-",

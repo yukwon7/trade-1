@@ -16,6 +16,7 @@ from server_a.hermes.agent_router import AgentRouter
 from server_a.hermes.agent_orchestra import AgentOrchestra
 from server_a.hermes.codex_bridge import CodexBridge
 from server_a.hermes.main import run_hermes_cycle_async
+from server_a.hermes.safe_executor import SafeExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,10 @@ ANALYSIS_BOT_COMMANDS = [
     {"command": "progress", "description": "현재 목표 진행률"},
     {"command": "codex", "description": "Codex 작업 등록"},
     {"command": "codex_status", "description": "Codex 작업 상태"},
+    {"command": "exec_status", "description": "실행 가능 상태"},
+    {"command": "server_status", "description": "서버 상태 조회"},
+    {"command": "run_tests", "description": "테스트 실행"},
+    {"command": "logs", "description": "헤르메스 로그 조회"},
     {"command": "task", "description": "개발 태스크 시작"},
     {"command": "debate", "description": "에이전트 토론"},
     {"command": "review", "description": "코드 리뷰"},
@@ -53,6 +58,7 @@ class TelegramAnalysisCommandHandler:
         config_dir = Path(getattr(settings, "config_dir", Path(settings.project_dir) / "config"))
         self.config_dir = config_dir
         self.codex = CodexBridge(config_dir, Path(settings.project_dir))
+        self.executor = SafeExecutor(Path(settings.project_dir))
         self.allowed_chats_path = config_dir / "analysis_allowed_chats.json"
         self.goal_task: asyncio.Task | None = None
         self.goal_state: dict[str, Any] = {}
@@ -183,6 +189,12 @@ class TelegramAnalysisCommandHandler:
         if command in {"codex_run", "코덱스실행"}:
             task = self.codex.run_once()
             return f"Codex worker: {html.escape(str(task.get('status')))}\n{html.escape(str(task.get('error') or task.get('message') or task.get('result') or '')[:1200])}"
+        if command in {"exec_status", "실행상태"}:
+            return self.executor.exec_status()
+        if command in {"server_status", "서버상태"}:
+            return await self.executor.run("server_status")
+        if command in {"logs", "로그"}:
+            return await self.executor.run("logs", argument)
         if command in {"task", "작업"}:
             return await self.router.task(argument or "마스터가 태스크 내용을 비워 보냈습니다. 필요한 작업을 질문해서 명확히 해라.")
         if command in {"debate", "토론"}:
@@ -240,9 +252,9 @@ class TelegramAnalysisCommandHandler:
         if command == "dev":
             return await self.router.code(argument or "현재 repo에서 다음 안전한 개발 작업을 제안해줘.")
         if command == "git_status":
-            return await self.agents.run_safe_command("git_status")
+            return await self.executor.run("git_status")
         if command == "run_tests":
-            return await self.agents.run_safe_command("tests")
+            return await self.executor.run("run_tests")
         if command == "clear":
             self.agents.clear()
             self.router.clear()
@@ -348,6 +360,8 @@ class TelegramAnalysisCommandHandler:
             "/progress: 목표 진행률\n"
             "/codex 요청: Codex 작업 등록\n"
             "/codex_status: Codex 큐 확인\n"
+            "/exec_status: 실행 가능 상태\n"
+            "/server_status /run_tests /logs: 실제 실행\n"
             "/task 내용: 태스크 합의안\n"
             "/debate 주제: 에이전트 토론\n"
             "/review 코드: 코드 리뷰\n"

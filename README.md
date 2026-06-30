@@ -114,6 +114,11 @@ Server A Hermes AI Orchestrator commands:
 - `/progress`: show current goal progress
 - `/codex <task>`: enqueue a hard task for Codex processing
 - `/codex_status [id]`: inspect the Codex task queue
+- `/exec_status`: show whether Node/npm/Codex CLI are installed on Server A
+- `/server_status`: run safe read-only server status checks
+- `/run_tests`: run the project unit test suite on Server A
+- `/logs [service]`: show recent allowlisted Hermes service logs
+- `/codex_run`: execute the next queued Codex task when `HERMES_CODEX_DIRECT_RUN=true` and Codex CLI authentication is ready
 - `/debate <topic>`: summon the full agent team for a structured debate
 - `/review <code>`: ARES-led code review with implementation and optimization input
 - `/approve`: approve the pending consensus for follow-up execution by the Codex/operator workflow
@@ -140,7 +145,10 @@ Codex bridge:
 - simple goals stay with Hermes agents; they draft the answer/plan without spending Codex work
 - `scripts/run_codex_worker.sh` processes one queued task when Codex CLI is installed on Server A
 - direct execution is disabled unless `HERMES_CODEX_DIRECT_RUN=true`
+- Server A must pass `codex doctor`; otherwise `/codex_run` blocks with an authentication-required message
+- NVIDIA NIM keys are used by Hermes agents, but current Codex CLI execution should use Codex/OpenAI auth (`codex login` or supported `OPENAI_API_KEY`). A NVIDIA NIM dry-run rejected Codex tool schema in the Responses API.
 - default Codex sandbox is `workspace-write`; destructive commands and Server B changes still require external approval
+- safe execution commands are allowlisted and execute immediately from Telegram; arbitrary shell is not exposed
 
 Server A can use a separate Telegram bot token:
 
