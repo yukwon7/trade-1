@@ -125,12 +125,22 @@ class PendingTask:
     created_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class AgentPlan:
+    task_type: str
+    complexity: str
+    agents: tuple[str, ...]
+    reason: str
+    full_debate: bool = False
+
+
 @dataclass
 class AgentRouter:
     cache_ttl_seconds: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL", "1800")))
     cache: dict[str, tuple[float, str]] = field(default_factory=dict)
     usage: dict[str, UsageCounter] = field(default_factory=dict)
     pending_task: PendingTask | None = None
+    last_plan: AgentPlan | None = None
 
     async def auto(self, message: str) -> str:
         command = "code" if _looks_like_code_task(message) else "chat"
@@ -142,11 +152,20 @@ class AgentRouter:
 
     async def task(self, message: str) -> str:
         task_type = _classify_task(message)
-        agents = TASK_AGENTS[task_type]
-        return await self._run_workflow("task", message, agents, task_type)
+        plan = _plan_agents(message, task_type)
+        self.last_plan = plan
+        return await self._run_workflow("task", message, plan)
 
     async def debate(self, topic: str) -> str:
-        return await self._run_workflow("debate", topic, tuple(AGENT_TEAM.keys()), "architecture")
+        plan = AgentPlan(
+            task_type="architecture",
+            complexity="full",
+            agents=tuple(AGENT_TEAM.keys()),
+            reason="전체 토론 명령",
+            full_debate=True,
+        )
+        self.last_plan = plan
+        return await self._run_workflow("debate", topic, plan)
 
     async def approve(self) -> str:
         if not self.pending_task:
@@ -213,7 +232,9 @@ class AgentRouter:
         return f"🔍 교차검증 결과\n<pre>{html.escape(joined[:3500])}</pre>"
 
     async def review(self, message: str) -> str:
-        return await self._run_workflow("review", message, TASK_AGENTS["review"], "review")
+        plan = _plan_agents(message, "review", force_agents=TASK_AGENTS["review"])
+        self.last_plan = plan
+        return await self._run_workflow("review", message, plan)
 
     async def code(self, message: str) -> str:
         return await self.task(message)
@@ -243,6 +264,11 @@ class AgentRouter:
             lines.append(f"소집: {', '.join(self.pending_task.agents)}")
         else:
             lines.append("진행 중인 승인 대기 태스크 없음")
+        if self.last_plan:
+            lines.append(
+                f"최근 선별: {', '.join(self.last_plan.agents)} "
+                f"({self.last_plan.complexity}, {self.last_plan.reason})"
+            )
         lines.extend(["", self.models_text(), "", "프로세스 사용량:"])
         if not self.usage:
             lines.append("- 아직 호출 기록 없음")
@@ -266,23 +292,23 @@ class AgentRouter:
         self.cache.clear()
         self.pending_task = None
 
-    async def _run_workflow(self, workflow: str, message: str, agents: tuple[str, ...], task_type: str) -> str:
+    async def _run_workflow(self, workflow: str, message: str, plan: AgentPlan) -> str:
         task_id = hashlib.md5(f"{time.time()}:{message}".encode("utf-8")).hexdigest()[:8]
-        start = _format_task_start(message, agents)
-        round_one = await self._collect_agent_round(message, agents, workflow, task_type)
+        start = _format_task_start(message, plan)
+        round_one = await self._collect_agent_round(message, plan.agents, workflow, plan.task_type)
         if not round_one:
             fallback = await self._ask_chain(("nvidia",), message, workflow)
             return start + "\n\n" + fallback
-        synthesis = await self._synthesize(message, round_one, task_type)
+        synthesis = await self._synthesize(message, round_one, plan.task_type)
         validation = await self._validate_with_ares(message, synthesis, round_one)
         verdict = str(validation.get("verdict") or validation.get("approval") or "CONDITIONAL").upper()
         consensus = str(synthesis.get("consensus") or synthesis.get("reply") or synthesis.get("recommendation") or "합의안 생성 실패")
         server_action = _server_action_required(message, consensus)
         self.pending_task = PendingTask(
             task_id=task_id,
-            task_type=task_type,
+            task_type=plan.task_type,
             message=message,
-            agents=agents,
+            agents=plan.agents,
             consensus=consensus,
             ares_verdict=verdict,
             server_action=server_action,
@@ -435,12 +461,13 @@ def _format_agent_text(agent_name: str, result: dict[str, Any]) -> str:
     return f"{spec.icon} <b>{agent_name}</b>\n{html.escape(_clip(reply, 900))}"
 
 
-def _format_task_start(message: str, agents: tuple[str, ...]) -> str:
+def _format_task_start(message: str, plan: AgentPlan) -> str:
     return (
         "🔱 <b>HERMES</b>\n"
         "━━━━━━━━━━━━━━━\n"
         f"📋 태스크: {html.escape(message[:700])}\n"
-        f"🤖 소집: {html.escape(', '.join(agents))}\n"
+        f"🤖 소집: {html.escape(', '.join(plan.agents))}\n"
+        f"🧠 선별: {html.escape(plan.complexity)} — {html.escape(plan.reason)}\n"
         "🔄 예상 단계: 의견 수집 → 합의안 → ARES 검증 → 승인 대기\n"
         "━━━━━━━━━━━━━━━"
     )
@@ -499,6 +526,96 @@ def _classify_task(message: str) -> str:
     if any(word in lowered for word in ("스크립트", "자동화", "cron", "automation")):
         return "automation"
     return "feature"
+
+
+def _plan_agents(message: str, task_type: str, force_agents: tuple[str, ...] | None = None) -> AgentPlan:
+    lowered = message.lower()
+    if force_agents:
+        return AgentPlan(task_type, "forced", _dedupe(force_agents), "명령이 특정 에이전트 구성을 요구함")
+    if any(word in lowered for word in ("전체", "전부", "모든 에이전트", "풀토론", "full debate", "all agents")):
+        return AgentPlan(task_type, "full", TASK_AGENTS.get(task_type, tuple(AGENT_TEAM.keys())), "마스터가 전체 검토를 요청함", True)
+
+    score = _complexity_score(message)
+    if score <= 1:
+        complexity = "lean"
+        agents = _lean_agents(task_type, lowered)
+        reason = "간단한 작업이라 핵심 담당자만 호출"
+    elif score <= 3:
+        complexity = "balanced"
+        agents = _balanced_agents(task_type, lowered)
+        reason = "중간 난도라 구현/검증 중심으로 제한 소집"
+    else:
+        complexity = "deep"
+        agents = TASK_AGENTS.get(task_type, ("ZEUS", "ATHENA", "ARES"))
+        reason = "복잡도 또는 운영 영향이 커서 정밀 검토"
+
+    max_agents = max(2, int(os.getenv("HERMES_MAX_AGENTS_PER_TASK", "4")))
+    if complexity != "deep":
+        agents = agents[:max_agents]
+    return AgentPlan(task_type, complexity, _dedupe(agents), reason)
+
+
+def _complexity_score(message: str) -> int:
+    lowered = message.lower()
+    score = 0
+    if len(message) > 600:
+        score += 1
+    if len(message) > 1500:
+        score += 1
+    if any(word in lowered for word in ("server b", "실서버", "프로덕션", "배포", "재시작", "db", "마이그레이션")):
+        score += 2
+    if any(word in lowered for word in ("보안", "api키", "토큰", "권한", "삭제", "실거래", "손실")):
+        score += 2
+    if any(word in lowered for word in ("아키텍처", "구조", "전략", "새 기능", "자동화", "최적화")):
+        score += 1
+    return score
+
+
+def _lean_agents(task_type: str, lowered: str) -> tuple[str, ...]:
+    mapping = {
+        "feature": ("ATHENA", "ORACLE"),
+        "bug": ("ATHENA", "ORACLE"),
+        "architecture": ("ZEUS", "ARES"),
+        "review": ("ARES", "ATHENA"),
+        "deploy": ("HEPHAESTUS", "ORACLE"),
+        "research": ("APOLLO", "ZEUS"),
+        "automation": ("ATHENA", "HEPHAESTUS"),
+        "performance": ("APOLLO", "ATHENA"),
+    }
+    agents = mapping.get(task_type, ("ATHENA", "ORACLE"))
+    if any(word in lowered for word in ("보안", "토큰", "api키", "권한")):
+        agents += ("ARES",)
+    return agents
+
+
+def _balanced_agents(task_type: str, lowered: str) -> tuple[str, ...]:
+    mapping = {
+        "feature": ("ZEUS", "ATHENA", "ORACLE"),
+        "bug": ("APOLLO", "ATHENA", "ORACLE"),
+        "architecture": ("ZEUS", "APOLLO", "ARES"),
+        "review": ("ARES", "APOLLO", "ATHENA"),
+        "deploy": ("HEPHAESTUS", "ARES", "ORACLE"),
+        "research": ("APOLLO", "ZEUS", "ATHENA"),
+        "automation": ("ATHENA", "HEPHAESTUS", "ORACLE"),
+        "performance": ("APOLLO", "ATHENA", "ORACLE"),
+    }
+    agents = mapping.get(task_type, TASK_AGENTS.get(task_type, ("ZEUS", "ATHENA", "ORACLE")))
+    if any(word in lowered for word in ("테스트", "검증", "동작")) and "ORACLE" not in agents:
+        agents += ("ORACLE",)
+    if any(word in lowered for word in ("보안", "토큰", "api키", "권한")) and "ARES" not in agents:
+        agents += ("ARES",)
+    return agents
+
+
+def _dedupe(items: tuple[str, ...]) -> tuple[str, ...]:
+    seen = set()
+    output = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        output.append(item)
+    return tuple(output)
 
 
 def _server_action_required(message: str, consensus: str) -> str:

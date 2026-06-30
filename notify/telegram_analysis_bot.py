@@ -14,6 +14,7 @@ from analytics.router_backtester import run_backtest
 from analytics.stress_tester import run_stress_test, summary_text
 from server_a.hermes.agent_router import AgentRouter
 from server_a.hermes.agent_orchestra import AgentOrchestra
+from server_a.hermes.codex_bridge import CodexBridge
 from server_a.hermes.main import run_hermes_cycle_async
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,8 @@ ANALYSIS_BOT_COMMANDS = [
     {"command": "start", "description": "헤르메스 시작/도움말"},
     {"command": "goal", "description": "목표 설정 후 진행 보고"},
     {"command": "progress", "description": "현재 목표 진행률"},
+    {"command": "codex", "description": "Codex 작업 등록"},
+    {"command": "codex_status", "description": "Codex 작업 상태"},
     {"command": "task", "description": "개발 태스크 시작"},
     {"command": "debate", "description": "에이전트 토론"},
     {"command": "review", "description": "코드 리뷰"},
@@ -49,6 +52,7 @@ class TelegramAnalysisCommandHandler:
         self.router = AgentRouter()
         config_dir = Path(getattr(settings, "config_dir", Path(settings.project_dir) / "config"))
         self.config_dir = config_dir
+        self.codex = CodexBridge(config_dir, Path(settings.project_dir))
         self.allowed_chats_path = config_dir / "analysis_allowed_chats.json"
         self.goal_task: asyncio.Task | None = None
         self.goal_state: dict[str, Any] = {}
@@ -172,6 +176,13 @@ class TelegramAnalysisCommandHandler:
             return self.start_goal(chat_id or self.chat_id, argument)
         if command in {"progress", "goal_status", "진행", "진행률"}:
             return self.goal_status_text()
+        if command in {"codex", "코덱스"}:
+            return self.codex_enqueue(argument)
+        if command in {"codex_status", "코덱스상태"}:
+            return self.codex.status_text(argument)
+        if command in {"codex_run", "코덱스실행"}:
+            task = self.codex.run_once()
+            return f"Codex worker: {html.escape(str(task.get('status')))}\n{html.escape(str(task.get('error') or task.get('message') or task.get('result') or '')[:1200])}"
         if command in {"task", "작업"}:
             return await self.router.task(argument or "마스터가 태스크 내용을 비워 보냈습니다. 필요한 작업을 질문해서 명확히 해라.")
         if command in {"debate", "토론"}:
@@ -273,12 +284,17 @@ class TelegramAnalysisCommandHandler:
         try:
             await self._goal_update(chat_id, 10, "목표 분석 중")
             await asyncio.sleep(0.2)
-            await self._goal_update(chat_id, 40, "에이전트 합의안 생성 중")
+            await self._goal_update(chat_id, 40, "에이전트가 초안/실행안 작성 중")
             report = await self.router.task(goal)
-            await self._append_goal_queue(goal, report)
-            await self._goal_update(chat_id, 75, "Codex 작업 큐 등록 완료")
+            use_codex, reason = self._should_use_codex(goal)
+            if use_codex:
+                task = await self._append_goal_queue(goal, report)
+                await self._goal_update(chat_id, 75, f"Codex 최종 개발 큐 등록 완료: {task['id']}")
+            else:
+                await self._goal_update(chat_id, 75, f"Codex 생략: {reason}")
             await self._send_to_chat(chat_id, _compact_text(report, 1600))
-            await self._goal_update(chat_id, 100, "완료 — 필요 시 /approve 로 승인")
+            done_text = "완료 — Codex가 최종 수정 대기" if use_codex else "완료 — 에이전트 합의안으로 충분"
+            await self._goal_update(chat_id, 100, done_text)
         except asyncio.CancelledError:
             await self._goal_update(chat_id, int(self.goal_state.get("progress", 0)), "중단됨")
             raise
@@ -291,15 +307,37 @@ class TelegramAnalysisCommandHandler:
         self.goal_state["status"] = status
         await self._send_to_chat(chat_id, f"🎯 목표 진행률 {progress}%\n{html.escape(status)}")
 
-    async def _append_goal_queue(self, goal: str, report: str) -> None:
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        path = self.config_dir / "codex_goal_queue.jsonl"
-        payload = {
-            "goal": goal,
-            "report": report[:3000],
-            "created_by": "telegram_hermes_goal",
-        }
-        await asyncio.to_thread(_append_jsonl, path, payload)
+    def _should_use_codex(self, goal: str) -> tuple[bool, str]:
+        lowered = goal.lower()
+        if "codex" in lowered or "코덱스" in lowered:
+            return True, "마스터가 Codex를 명시함"
+        plan = self.router.last_plan
+        pending = self.router.pending_task
+        if plan and plan.complexity in {"deep", "full"}:
+            return True, f"{plan.complexity} 복잡도"
+        if pending and pending.server_action == "승인 필요":
+            return True, "서버/배포 영향으로 승인 필요"
+        code_words = ("구현", "개발", "수정", "고쳐", "패치", "리팩터", "파일", "코드")
+        if plan and plan.complexity == "balanced" and any(word in lowered for word in code_words):
+            return True, "중간 난도 코드 작업"
+        return False, "간단한 작업은 에이전트 초안만 사용"
+
+    async def _append_goal_queue(self, goal: str, report: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self.codex.enqueue, goal, "telegram_goal", report[:3000])
+
+    def codex_enqueue(self, prompt: str) -> str:
+        prompt = prompt.strip()
+        if not prompt:
+            return "사용법: /codex Codex에게 맡길 작업"
+        task = self.codex.enqueue(prompt, "telegram_codex")
+        available = "가능" if self.codex.codex_available() else "Server A에 Codex CLI 없음"
+        return (
+            "🧩 Codex 작업 등록 완료\n"
+            f"ID: {task['id']}\n"
+            f"상태: {task['status']}\n"
+            f"CLI: {available}\n"
+            "확인: /codex_status"
+        )
 
     @staticmethod
     def status_text() -> str:
@@ -308,6 +346,8 @@ class TelegramAnalysisCommandHandler:
             "짧게 답하고, 목표 모드에서는 진행률을 계속 보고합니다.\n"
             "/goal 목표: 끝까지 진행 보고\n"
             "/progress: 목표 진행률\n"
+            "/codex 요청: Codex 작업 등록\n"
+            "/codex_status: Codex 큐 확인\n"
             "/task 내용: 태스크 합의안\n"
             "/debate 주제: 에이전트 토론\n"
             "/review 코드: 코드 리뷰\n"
@@ -322,8 +362,3 @@ def _compact_text(text: str, limit: int = 1600) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 20].rstrip() + "\n…요약 표시"
-
-
-def _append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

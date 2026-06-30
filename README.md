@@ -112,6 +112,8 @@ Server A Hermes AI Orchestrator commands:
 - `/task <goal>`: start a development task; Hermes assigns agents and returns a consensus pending approval
 - `/goal <goal>`: set a persistent Hermes goal; the bot reports progress back to Telegram until the orchestration cycle completes
 - `/progress`: show current goal progress
+- `/codex <task>`: enqueue a hard task for Codex processing
+- `/codex_status [id]`: inspect the Codex task queue
 - `/debate <topic>`: summon the full agent team for a structured debate
 - `/review <code>`: ARES-led code review with implementation and optimization input
 - `/approve`: approve the pending consensus for follow-up execution by the Codex/operator workflow
@@ -122,6 +124,23 @@ Server A Hermes AI Orchestrator commands:
 - `/bind_agent_room`: authorize the current Telegram room
 - hidden operator/debug commands still exist: `/model`, `/cost`, `/think`, `/free`, `/gpt`, `/nvidia`, `/code`, `/analyze`, `/stress`, `/backtest`, `/decision`
 - plain text messages are routed automatically when `AGENT_CONVERSATION_ENABLED=true`
+
+Hermes uses smart agent selection by default:
+
+- simple implementation tasks use a lean 2-agent team
+- medium tasks use a balanced implementation/verification team
+- deployment, security, Server B, API-key, or production-impact tasks escalate automatically
+- `모든 에이전트`, `전체 토론`, or `/debate` forces full-team discussion
+- `HERMES_MAX_AGENTS_PER_TASK` caps non-deep task fan-out to protect tokens and latency
+
+Codex bridge:
+
+- Telegram writes tasks to `config/codex_tasks.json`
+- `/goal` only enqueues Codex when the plan is complex, deployment-sensitive, explicitly asks for Codex, or needs final code modification
+- simple goals stay with Hermes agents; they draft the answer/plan without spending Codex work
+- `scripts/run_codex_worker.sh` processes one queued task when Codex CLI is installed on Server A
+- direct execution is disabled unless `HERMES_CODEX_DIRECT_RUN=true`
+- default Codex sandbox is `workspace-write`; destructive commands and Server B changes still require external approval
 
 Server A can use a separate Telegram bot token:
 

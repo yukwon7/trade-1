@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from notify.telegram_analysis_bot import ANALYSIS_BOT_COMMANDS, TelegramAnalysisCommandHandler
 from server_a.hermes.agent_orchestra import AgentOrchestra
-from server_a.hermes.agent_router import AgentRouter
+from server_a.hermes.agent_router import AgentRouter, _plan_agents
 
 
 class FakeNotifier:
@@ -130,9 +130,33 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("목표 설정 완료", reply)
         self.assertIn("100%", await self.handler.dispatch("progress"))
 
+    async def test_codex_command_enqueues_task(self):
+        reply = await self.handler.dispatch("codex", "어려운 버그 고쳐줘")
+        self.assertIn("Codex 작업 등록 완료", reply)
+        self.assertIn("queued", self.handler.codex.status_text())
+
+    async def test_goal_uses_codex_only_for_complex_work(self):
+        self.handler.router.last_plan = SimpleNamespace(complexity="lean")
+        self.handler.router.pending_task = SimpleNamespace(server_action="불필요")
+        use_codex, reason = self.handler._should_use_codex("문구만 짧게 바꿔줘")
+        self.assertFalse(use_codex)
+        self.assertIn("간단한", reason)
+
+        self.handler.router.last_plan = SimpleNamespace(complexity="deep")
+        use_codex, reason = self.handler._should_use_codex("복잡한 코드 수정")
+        self.assertTrue(use_codex)
+        self.assertIn("deep", reason)
+
+    async def test_goal_uses_codex_when_explicitly_requested(self):
+        self.handler.router.last_plan = SimpleNamespace(complexity="lean")
+        use_codex, reason = self.handler._should_use_codex("이건 코덱스로 최종 수정해줘")
+        self.assertTrue(use_codex)
+        self.assertIn("명시", reason)
+
     async def test_korean_menu_descriptions(self):
         descriptions = " ".join(item["description"] for item in ANALYSIS_BOT_COMMANDS)
         self.assertIn("목표", descriptions)
+        self.assertIn("Codex", descriptions)
         self.assertIn("진행", descriptions)
         self.assertIn("상태", descriptions)
 
@@ -187,6 +211,23 @@ class AgentOrchestraBotTests(unittest.IsolatedAsyncioTestCase):
         text = AgentRouter().agents_text().lower()
         self.assertNotIn("risk", text)
         self.assertNotIn("리스크", text)
+
+    async def test_smart_agent_plan_uses_lean_team_for_simple_task(self):
+        plan = _plan_agents("버튼 문구 하나 수정해줘", "feature")
+        self.assertEqual(plan.complexity, "lean")
+        self.assertLessEqual(len(plan.agents), 2)
+        self.assertIn("ATHENA", plan.agents)
+
+    async def test_smart_agent_plan_escalates_for_sensitive_task(self):
+        plan = _plan_agents("Server B 배포와 API키 권한 변경을 검토해줘", "deploy")
+        self.assertIn(plan.complexity, {"balanced", "deep"})
+        self.assertIn("HEPHAESTUS", plan.agents)
+        self.assertIn("ARES", plan.agents)
+
+    async def test_smart_agent_plan_all_agents_when_requested(self):
+        plan = _plan_agents("모든 에이전트가 전체 토론해줘", "architecture")
+        self.assertTrue(plan.full_debate)
+        self.assertGreaterEqual(len(plan.agents), 3)
 
 
 if __name__ == "__main__":
